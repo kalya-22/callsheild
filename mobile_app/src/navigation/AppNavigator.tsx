@@ -5,7 +5,8 @@ import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { PermissionScreen } from '../screens/PermissionScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
-import { HomeScreen } from '../../screens/HomeScreen';
+import { HomeScreen } from '../screens/HomeScreen';
+import { LiveCallScreen } from '../screens/LiveCallScreen';
 import { C } from '../theme/colors';
 
 export type ScreenState =
@@ -14,6 +15,7 @@ export type ScreenState =
   | 'permission'
   | 'login'
   | 'home'
+  | 'live_call'
   | 'profile';
 
 export function AppNavigator() {
@@ -47,11 +49,18 @@ export function AppNavigator() {
     );
   }
 
+  // Live Call Active Screen
+  if (currentScreen === 'live_call') {
+    return <LiveCallScreen onEndCall={() => setCurrentScreen('home')} />;
+  }
+
   // Main Authenticated Shell with Bottom Navigation Bar
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.mainContent}>
-        {currentScreen === 'home' && <HomeScreen />}
+        {currentScreen === 'home' && (
+          <HomeScreen onStartLiveCall={() => setCurrentScreen('live_call')} />
+        )}
         {currentScreen === 'profile' && (
           <ProfileScreen
             onLogout={() => {
