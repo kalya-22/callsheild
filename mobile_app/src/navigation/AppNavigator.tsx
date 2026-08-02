@@ -7,6 +7,9 @@ import { LoginScreen } from '../screens/LoginScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { LiveCallScreen } from '../screens/LiveCallScreen';
+import { LiveAnalysisScreen } from '../screens/LiveAnalysisScreen';
+import { AlertScreen } from '../screens/AlertScreen';
+import { SafeResultScreen } from '../screens/SafeResultScreen';
 import { C } from '../theme/colors';
 
 export type ScreenState =
@@ -16,6 +19,9 @@ export type ScreenState =
   | 'login'
   | 'home'
   | 'live_call'
+  | 'live_analysis'
+  | 'alert'
+  | 'safe_result'
   | 'profile';
 
 export function AppNavigator() {
@@ -51,7 +57,22 @@ export function AppNavigator() {
 
   // Live Call Active Screen
   if (currentScreen === 'live_call') {
-    return <LiveCallScreen onEndCall={() => setCurrentScreen('home')} />;
+    return <LiveCallScreen onEndCall={() => setCurrentScreen('live_analysis')} />;
+  }
+
+  // Alert Screen (Critical Warning)
+  if (currentScreen === 'alert') {
+    return (
+      <AlertScreen
+        onDismiss={() => setCurrentScreen('home')}
+        onBlock={() => setCurrentScreen('home')}
+      />
+    );
+  }
+
+  // Safe Result Screen
+  if (currentScreen === 'safe_result') {
+    return <SafeResultScreen onDone={() => setCurrentScreen('home')} />;
   }
 
   // Main Authenticated Shell with Bottom Navigation Bar
@@ -61,6 +82,15 @@ export function AppNavigator() {
         {currentScreen === 'home' && (
           <HomeScreen onStartLiveCall={() => setCurrentScreen('live_call')} />
         )}
+
+        {currentScreen === 'live_analysis' && (
+          <LiveAnalysisScreen
+            onBack={() => setCurrentScreen('home')}
+            onTriggerAlert={() => setCurrentScreen('alert')}
+            onTriggerSafe={() => setCurrentScreen('safe_result')}
+          />
+        )}
+
         {currentScreen === 'profile' && (
           <ProfileScreen
             onLogout={() => {
@@ -78,7 +108,16 @@ export function AppNavigator() {
           onPress={() => setCurrentScreen('home')}
         >
           <Text style={[styles.tabLabel, currentScreen === 'home' && styles.tabLabelActive]}>
-            🛡️ Shield Home
+            🛡️ Home
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.tabItem}
+          onPress={() => setCurrentScreen('live_analysis')}
+        >
+          <Text style={[styles.tabLabel, currentScreen === 'live_analysis' && styles.tabLabelActive]}>
+            ⚡ AI Analysis
           </Text>
         </TouchableOpacity>
 
@@ -114,11 +153,11 @@ const styles = StyleSheet.create({
   },
   tabItem: {
     paddingVertical: 10,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
   },
   tabLabel: {
     color: C.textMuted,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
   },
   tabLabelActive: {
