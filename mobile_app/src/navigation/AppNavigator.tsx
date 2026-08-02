@@ -10,6 +10,9 @@ import { LiveCallScreen } from '../screens/LiveCallScreen';
 import { LiveAnalysisScreen } from '../screens/LiveAnalysisScreen';
 import { AlertScreen } from '../screens/AlertScreen';
 import { SafeResultScreen } from '../screens/SafeResultScreen';
+import { HistoryScreen } from '../screens/HistoryScreen';
+import { CallReportScreen } from '../screens/CallReportScreen';
+import { AnalyticsScreen } from '../screens/AnalyticsScreen';
 import { C } from '../theme/colors';
 
 export type ScreenState =
@@ -22,11 +25,14 @@ export type ScreenState =
   | 'live_analysis'
   | 'alert'
   | 'safe_result'
+  | 'history'
+  | 'call_report'
+  | 'analytics'
   | 'profile';
 
 export function AppNavigator() {
   const [currentScreen, setCurrentScreen] = useState<ScreenState>('splash');
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [selectedReportItem, setSelectedReportItem] = useState<any>(null);
 
   // Splash Screen
   if (currentScreen === 'splash') {
@@ -45,27 +51,20 @@ export function AppNavigator() {
 
   // Login Screen
   if (currentScreen === 'login') {
-    return (
-      <LoginScreen
-        onLoginSuccess={() => {
-          setIsAuthenticated(true);
-          setCurrentScreen('home');
-        }}
-      />
-    );
+    return <LoginScreen onLoginSuccess={() => setCurrentScreen('home')} />;
   }
 
-  // Live Call Active Screen
+  // Live Call Screen
   if (currentScreen === 'live_call') {
     return <LiveCallScreen onEndCall={() => setCurrentScreen('live_analysis')} />;
   }
 
-  // Alert Screen (Critical Warning)
+  // Alert Screen
   if (currentScreen === 'alert') {
     return (
       <AlertScreen
         onDismiss={() => setCurrentScreen('home')}
-        onBlock={() => setCurrentScreen('home')}
+        onBlock={() => setCurrentScreen('history')}
       />
     );
   }
@@ -75,7 +74,17 @@ export function AppNavigator() {
     return <SafeResultScreen onDone={() => setCurrentScreen('home')} />;
   }
 
-  // Main Authenticated Shell with Bottom Navigation Bar
+  // Detailed Call Report Screen
+  if (currentScreen === 'call_report') {
+    return (
+      <CallReportScreen
+        reportItem={selectedReportItem}
+        onBack={() => setCurrentScreen('history')}
+      />
+    );
+  }
+
+  // Main Tabbed Navigation Shell
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.mainContent}>
@@ -91,13 +100,19 @@ export function AppNavigator() {
           />
         )}
 
-        {currentScreen === 'profile' && (
-          <ProfileScreen
-            onLogout={() => {
-              setIsAuthenticated(false);
-              setCurrentScreen('login');
+        {currentScreen === 'history' && (
+          <HistoryScreen
+            onSelectReport={(item) => {
+              setSelectedReportItem(item);
+              setCurrentScreen('call_report');
             }}
           />
+        )}
+
+        {currentScreen === 'analytics' && <AnalyticsScreen />}
+
+        {currentScreen === 'profile' && (
+          <ProfileScreen onLogout={() => setCurrentScreen('login')} />
         )}
       </View>
 
@@ -117,7 +132,25 @@ export function AppNavigator() {
           onPress={() => setCurrentScreen('live_analysis')}
         >
           <Text style={[styles.tabLabel, currentScreen === 'live_analysis' && styles.tabLabelActive]}>
-            ⚡ AI Analysis
+            ⚡ AI Live
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.tabItem}
+          onPress={() => setCurrentScreen('history')}
+        >
+          <Text style={[styles.tabLabel, currentScreen === 'history' && styles.tabLabelActive]}>
+            📜 History
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.tabItem}
+          onPress={() => setCurrentScreen('analytics')}
+        >
+          <Text style={[styles.tabLabel, currentScreen === 'analytics' && styles.tabLabelActive]}>
+            📊 Analytics
           </Text>
         </TouchableOpacity>
 
@@ -153,11 +186,11 @@ const styles = StyleSheet.create({
   },
   tabItem: {
     paddingVertical: 10,
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
   },
   tabLabel: {
     color: C.textMuted,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
   tabLabelActive: {
