@@ -13,6 +13,10 @@ import { SafeResultScreen } from '../screens/SafeResultScreen';
 import { HistoryScreen } from '../screens/HistoryScreen';
 import { CallReportScreen } from '../screens/CallReportScreen';
 import { AnalyticsScreen } from '../screens/AnalyticsScreen';
+import { ScamReportScreen } from '../screens/ScamReportScreen';
+import { BlockedContactsScreen } from '../screens/BlockedContactsScreen';
+import { EmergencyScreen } from '../screens/EmergencyScreen';
+import { SettingsScreen } from '../screens/SettingsScreen';
 import { C } from '../theme/colors';
 
 export type ScreenState =
@@ -28,6 +32,10 @@ export type ScreenState =
   | 'history'
   | 'call_report'
   | 'analytics'
+  | 'scam_report'
+  | 'blocked'
+  | 'emergency'
+  | 'settings'
   | 'profile';
 
 export function AppNavigator() {
@@ -64,7 +72,7 @@ export function AppNavigator() {
     return (
       <AlertScreen
         onDismiss={() => setCurrentScreen('home')}
-        onBlock={() => setCurrentScreen('history')}
+        onBlock={() => setCurrentScreen('blocked')}
       />
     );
   }
@@ -82,6 +90,26 @@ export function AppNavigator() {
         onBack={() => setCurrentScreen('history')}
       />
     );
+  }
+
+  // Scam Report Screen
+  if (currentScreen === 'scam_report') {
+    return <ScamReportScreen onBack={() => setCurrentScreen('profile')} />;
+  }
+
+  // Blocked Contacts Screen
+  if (currentScreen === 'blocked') {
+    return <BlockedContactsScreen onBack={() => setCurrentScreen('profile')} />;
+  }
+
+  // Emergency SOS Screen
+  if (currentScreen === 'emergency') {
+    return <EmergencyScreen onBack={() => setCurrentScreen('profile')} />;
+  }
+
+  // Settings Screen
+  if (currentScreen === 'settings') {
+    return <SettingsScreen onBack={() => setCurrentScreen('profile')} />;
   }
 
   // Main Tabbed Navigation Shell
@@ -112,7 +140,13 @@ export function AppNavigator() {
         {currentScreen === 'analytics' && <AnalyticsScreen />}
 
         {currentScreen === 'profile' && (
-          <ProfileScreen onLogout={() => setCurrentScreen('login')} />
+          <ProfileScreen
+            onLogout={() => setCurrentScreen('login')}
+            onNavigateSettings={() => setCurrentScreen('settings')}
+            onNavigateBlocked={() => setCurrentScreen('blocked')}
+            onNavigateReport={() => setCurrentScreen('scam_report')}
+            onNavigateEmergency={() => setCurrentScreen('emergency')}
+          />
         )}
       </View>
 

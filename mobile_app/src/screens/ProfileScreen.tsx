@@ -5,13 +5,23 @@ import { GlassCard } from '../components/GlassCard';
 
 interface ProfileScreenProps {
   onLogout: () => void;
+  onNavigateSettings?: () => void;
+  onNavigateBlocked?: () => void;
+  onNavigateReport?: () => void;
+  onNavigateEmergency?: () => void;
 }
 
-export function ProfileScreen({ onLogout }: ProfileScreenProps) {
+export function ProfileScreen({
+  onLogout,
+  onNavigateSettings,
+  onNavigateBlocked,
+  onNavigateReport,
+  onNavigateEmergency,
+}: ProfileScreenProps) {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.headerTitle}>My Profile</Text>
+        <Text style={styles.headerTitle}>My Profile & Security</Text>
 
         {/* Profile Card */}
         <GlassCard style={styles.profileCard}>
@@ -28,22 +38,47 @@ export function ProfileScreen({ onLogout }: ProfileScreenProps) {
           </View>
         </GlassCard>
 
-        {/* Security Info */}
-        <Text style={styles.sectionTitle}>Account Security</Text>
+        {/* Action Tools */}
+        <Text style={styles.sectionTitle}>Security & App Tools</Text>
 
-        <GlassCard style={styles.infoCard}>
-          <Text style={styles.infoLabel}>Device Protection Uptime</Text>
-          <Text style={styles.infoValue}>99.98%</Text>
+        <GlassCard style={styles.toolCard} onPress={onNavigateEmergency}>
+          <View style={styles.toolRow}>
+            <Text style={styles.toolIcon}>🚨</Text>
+            <View style={styles.toolText}>
+              <Text style={styles.toolTitle}>Emergency SOS Helpline</Text>
+              <Text style={styles.toolSub}>Instant 1-tap call to 1930 Cyber Desk</Text>
+            </View>
+          </View>
         </GlassCard>
 
-        <GlassCard style={styles.infoCard}>
-          <Text style={styles.infoLabel}>Vishing Threat Model</Text>
-          <Text style={styles.infoValue}>v2.4.1 (Latest)</Text>
+        <GlassCard style={styles.toolCard} onPress={onNavigateReport}>
+          <View style={styles.toolRow}>
+            <Text style={styles.toolIcon}>📢</Text>
+            <View style={styles.toolText}>
+              <Text style={styles.toolTitle}>Report Scam to Community</Text>
+              <Text style={styles.toolSub}>Flag malicious caller numbers & vishing notes</Text>
+            </View>
+          </View>
         </GlassCard>
 
-        <GlassCard style={styles.infoCard}>
-          <Text style={styles.infoLabel}>Scam Database Sync</Text>
-          <Text style={styles.infoValue}>Synced 2 minutes ago</Text>
+        <GlassCard style={styles.toolCard} onPress={onNavigateBlocked}>
+          <View style={styles.toolRow}>
+            <Text style={styles.toolIcon}>🚫</Text>
+            <View style={styles.toolText}>
+              <Text style={styles.toolTitle}>Blocked Scam Numbers</Text>
+              <Text style={styles.toolSub}>Manage blocked caller list & automated rules</Text>
+            </View>
+          </View>
+        </GlassCard>
+
+        <GlassCard style={styles.toolCard} onPress={onNavigateSettings}>
+          <View style={styles.toolRow}>
+            <Text style={styles.toolIcon}>⚙️</Text>
+            <View style={styles.toolText}>
+              <Text style={styles.toolTitle}>App & Server Settings</Text>
+              <Text style={styles.toolSub}>FastAPI host configuration, sensitivity, notifications</Text>
+            </View>
+          </View>
         </GlassCard>
 
         {/* Logout */}
@@ -61,53 +96,53 @@ const styles = StyleSheet.create({
     backgroundColor: C.bg,
   },
   content: {
-    paddingHorizontal: 24,
-    paddingTop: 24,
+    paddingHorizontal: 20,
+    paddingTop: 20,
     paddingBottom: 40,
   },
   headerTitle: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '800',
     color: C.text,
     marginBottom: 20,
   },
   profileCard: {
     alignItems: 'center',
-    paddingVertical: 24,
+    paddingVertical: 20,
     marginBottom: 24,
   },
   avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: C.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   avatarText: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '800',
     color: C.text,
   },
   name: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
     color: C.text,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   phone: {
-    fontSize: 13,
+    fontSize: 12,
     color: C.textSec,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   badgeRow: {
     flexDirection: 'row',
   },
   shieldBadge: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    paddingVertical: 5,
+    borderRadius: 14,
     backgroundColor: C.successDim,
     borderWidth: 1,
     borderColor: 'rgba(34, 197, 94, 0.3)',
@@ -118,40 +153,49 @@ const styles = StyleSheet.create({
     color: C.success,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: C.textSec,
     marginBottom: 12,
   },
-  infoCard: {
+  toolCard: {
+    padding: 14,
+    marginBottom: 10,
+  },
+  toolRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-    padding: 16,
   },
-  infoLabel: {
-    fontSize: 14,
-    color: C.textSec,
+  toolIcon: {
+    fontSize: 22,
+    marginRight: 12,
   },
-  infoValue: {
+  toolText: {
+    flex: 1,
+  },
+  toolTitle: {
     fontSize: 14,
     fontWeight: '700',
     color: C.text,
+    marginBottom: 2,
+  },
+  toolSub: {
+    fontSize: 11,
+    color: C.textSec,
   },
   logoutButton: {
-    height: 52,
+    height: 50,
     borderRadius: 16,
     backgroundColor: C.dangerDim,
     borderWidth: 1,
     borderColor: 'rgba(239, 68, 68, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 20,
+    marginTop: 16,
   },
   logoutButtonText: {
     color: C.danger,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
   },
 });
