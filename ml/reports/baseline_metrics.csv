@@ -1,0 +1,2 @@
+model,accuracy,precision,recall,f1
+logistic_regression,1.0,1.0,1.0,1.0

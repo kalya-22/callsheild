@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+librosa
+numpy<2.5
+pandas
+scikit-learn
+joblib
+python-multipart
+pydantic
+pytest
+gTTS
+httpx2

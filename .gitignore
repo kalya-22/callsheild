@@ -1,0 +1,80 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Data and model artifacts
+*.db
+*.sqlite
+*.sqlite3
+*.pkl
+*.joblib
+*.h5
+*.onnx
+*.wav
+*.flac
+*.mp3
+*.npy
+*.npz
+
+# Keep dataset folders, but ignore their contents by default
+ml/data/raw/*
+ml/data/processed/*
+ml/data/chunks/*
+ml/data/features/*
+!ml/data/raw/.gitkeep
+!ml/data/raw/human/
+!ml/data/raw/human/.gitkeep
+!ml/data/raw/ai_generated/
+!ml/data/raw/ai_generated/.gitkeep
+!ml/data/processed/.gitkeep
+!ml/data/processed/human/
+!ml/data/processed/human/.gitkeep
+!ml/data/processed/ai_generated/
+!ml/data/processed/ai_generated/.gitkeep
+!ml/data/chunks/.gitkeep
+!ml/data/chunks/human/
+!ml/data/chunks/human/.gitkeep
+!ml/data/chunks/ai_generated/
+!ml/data/chunks/ai_generated/.gitkeep
+!ml/data/features/.gitkeep
+!ml/data/features/tabular/
+!ml/data/features/tabular/.gitkeep
+!ml/data/features/summaries/
+!ml/data/features/summaries/.gitkeep
+
+# Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+
+# Logs
+*.log
+
+# Node & Dependencies
+node_modules/
+.expo/
+dist/
+.gradle/
+
+
+# Temporary and local folders
+.tmp/
+.sitefixed/
+
