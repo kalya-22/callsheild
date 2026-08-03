@@ -12,10 +12,16 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.callshield.app",
       "usesCleartextTraffic": true,
       "permissions": [
         "RECORD_AUDIO",
+        "READ_PHONE_STATE",
+        "READ_CALL_LOG",
+        "ANSWER_PHONE_CALLS",
         "MODIFY_AUDIO_SETTINGS",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MICROPHONE",
         "INTERNET"
       ]
     }

@@ -16,6 +16,7 @@ import { C } from '../theme/colors';
 import { GlassCard } from '../components/GlassCard';
 import { ShieldLogo } from '../components/ShieldLogo';
 import { CallShieldApi } from '../../services/CallShieldApi';
+import { callInterceptorService } from '../services/CallInterceptorService';
 
 interface RecentCall {
   id: string;
@@ -36,10 +37,12 @@ const mockRecentCalls: RecentCall[] = [
 interface HomeScreenProps {
   onStartLiveCall?: () => void;
   onUploadSuccess?: (predictionResult: any) => void;
+  onTriggerAlert?: () => void;
 }
 
-export function HomeScreen({ onStartLiveCall, onUploadSuccess }: HomeScreenProps) {
+export function HomeScreen({ onStartLiveCall, onUploadSuccess, onTriggerAlert }: HomeScreenProps) {
   const [protectionActive, setProtectionActive] = useState(true);
+  const [nativeInterceptorActive, setNativeInterceptorActive] = useState(true);
   const [backendOnline, setBackendOnline] = useState(true);
   const [recentCalls, setRecentCalls] = useState<RecentCall[]>(mockRecentCalls);
   const [isUploading, setIsUploading] = useState(false);
@@ -58,6 +61,21 @@ export function HomeScreen({ onStartLiveCall, onUploadSuccess }: HomeScreenProps
     const interval = setInterval(checkHealth, 15000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (nativeInterceptorActive) {
+      callInterceptorService.startListening(() => {
+        if (onTriggerAlert) {
+          onTriggerAlert();
+        }
+      });
+    } else {
+      callInterceptorService.stopListening();
+    }
+    return () => {
+      callInterceptorService.stopListening();
+    };
+  }, [nativeInterceptorActive, onTriggerAlert]);
 
   async function handlePickAndUploadAudio() {
     try {
@@ -154,6 +172,31 @@ export function HomeScreen({ onStartLiveCall, onUploadSuccess }: HomeScreenProps
             thumbColor={protectionActive ? C.text : '#94A3B8'}
             value={protectionActive}
             onValueChange={setProtectionActive}
+          />
+        </GlassCard>
+
+        {/* Native Android Call Interceptor Toggle */}
+        <GlassCard bright style={styles.interceptorCard}>
+          <View style={styles.shieldLeft}>
+            <View style={styles.interceptorIconCircle}>
+              <Text style={styles.interceptorIcon}>📞</Text>
+            </View>
+            <View style={styles.shieldInfo}>
+              <Text style={styles.shieldStatusTitle}>
+                {nativeInterceptorActive ? 'Android Call Interceptor ON' : 'Call Interceptor OFF'}
+              </Text>
+              <Text style={styles.shieldStatusSub}>
+                {nativeInterceptorActive
+                  ? 'Auto-analyzes incoming call streams'
+                  : 'Enable to auto-detect calls when phone rings'}
+              </Text>
+            </View>
+          </View>
+          <Switch
+            trackColor={{ false: '#334155', true: C.accent }}
+            thumbColor={nativeInterceptorActive ? C.text : '#94A3B8'}
+            value={nativeInterceptorActive}
+            onValueChange={setNativeInterceptorActive}
           />
         </GlassCard>
 
@@ -298,7 +341,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
+    marginBottom: 12,
+  },
+  interceptorCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
     marginBottom: 16,
+    borderColor: 'rgba(6, 182, 212, 0.25)',
+  },
+  interceptorIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: C.accentDim,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  interceptorIcon: {
+    fontSize: 22,
   },
   shieldLeft: {
     flexDirection: 'row',
@@ -311,13 +373,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   shieldStatusTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
     color: C.text,
     marginBottom: 2,
   },
   shieldStatusSub: {
-    fontSize: 12,
+    fontSize: 11,
     color: C.textSec,
   },
   uploadCard: {
