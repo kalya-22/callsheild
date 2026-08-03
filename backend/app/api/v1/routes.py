@@ -1,4 +1,10 @@
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+import base64
+import tempfile
+from pathlib import Path
+from starlette.concurrency import run_in_threadpool
+from ml.src.inference.predict_audio import predict_live_audio_chunk
+
 
 from app.schemas.prediction import (
     AuthResponse,
@@ -110,3 +116,43 @@ def clear_prediction_history() -> dict[str, object]:
         "message": "Prediction history cleared",
         "deleted_count": deleted_count,
     }
+
+
+@router.websocket("/ws/live-stream")
+async def live_audio_websocket(websocket: WebSocket) -> None:
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_json()
+            audio_base64 = data.get("audio_base64")
+            filename = data.get("filename", "live_stream_chunk.wav")
+
+            if not audio_base64:
+                await websocket.send_json({"error": "Missing audio_base64 data"})
+                continue
+
+            raw_bytes = base64.b64decode(audio_base64)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+                temp_path = Path(temp_file.name)
+                temp_file.write(raw_bytes)
+
+            try:
+                result = await run_in_threadpool(
+                    predict_live_audio_chunk,
+                    temp_path,
+                    filename,
+                )
+                await websocket.send_json({
+                    "status": "success",
+                    "result": result,
+                })
+            finally:
+                temp_path.unlink(missing_ok=True)
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        try:
+            await websocket.send_json({"error": str(exc)})
+        except Exception:
+            pass
+

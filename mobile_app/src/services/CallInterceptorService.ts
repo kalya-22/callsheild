@@ -1,5 +1,6 @@
 import { NativeModules, NativeEventEmitter, Platform } from 'react-native';
 import { CallShieldApi } from '../../services/CallShieldApi';
+import { callWebSocketService } from './CallWebSocketService';
 
 const { CallInterceptorModule } = NativeModules;
 
@@ -29,6 +30,10 @@ class CallInterceptorService {
     this.consecutiveAiChunks = 0;
     this.onThreatCallback = onThreatDetected || null;
 
+    // Connect WebSocket stream
+    callWebSocketService.connect();
+    callWebSocketService.onPrediction(this.handlePredictionResult);
+
     if (Platform.OS === 'android' && CallInterceptorModule) {
       CallInterceptorModule.startCallProtection();
     }
@@ -41,6 +46,8 @@ class CallInterceptorService {
   public stopListening() {
     this.isListening = false;
     this.consecutiveAiChunks = 0;
+    callWebSocketService.disconnect();
+
     if (this.eventEmitter) {
       this.eventEmitter.removeAllListeners('CallShieldNativeEvent');
     }
@@ -57,6 +64,7 @@ class CallInterceptorService {
 
       case 'ON_CALL_CONNECTED':
         console.log('[CallShield Interceptor] Call connected. Capturing audio stream...');
+        callWebSocketService.connect();
         break;
 
       case 'ON_CHUNK_CAPTURED':
@@ -73,8 +81,12 @@ class CallInterceptorService {
   };
 
   private async processAudioChunk(base64Data: string) {
+    // 1. Try pushing over low-latency WebSocket connection first
+    const sentOverWs = callWebSocketService.sendAudioChunk(base64Data, 'live_interceptor_chunk.wav');
+    if (sentOverWs) return;
+
+    // 2. Fallback to HTTP POST /predict-chunk if WebSocket is reconnecting
     try {
-      // Send live 3-second audio chunk buffer to FastAPI /predict-chunk
       const response = await fetch(`${CallShieldApi.baseUrl}/predict-chunk`, {
         method: 'POST',
         headers: {
@@ -90,27 +102,31 @@ class CallInterceptorService {
       if (!response.ok) return;
 
       const result = await response.json();
-      const aiProbability = result.ai_probability ?? 0;
-
-      if (aiProbability >= 0.75) {
-        this.consecutiveAiChunks += 1;
-      } else {
-        this.consecutiveAiChunks = Math.max(0, this.consecutiveAiChunks - 1);
-      }
-
-      // If 3 consecutive chunks show >= 75% AI scam probability, trigger Red Alert
-      if (this.consecutiveAiChunks >= 3 && this.onThreatCallback) {
-        this.onThreatCallback({
-          riskLevel: 'high',
-          probability: Math.round(aiProbability * 100),
-          verdict: 'ai_generated',
-          chunkCount: this.consecutiveAiChunks,
-        });
-      }
+      this.handlePredictionResult(result);
     } catch (err) {
       console.warn('[CallShield Interceptor] Chunk prediction error:', err);
     }
   }
+
+  private handlePredictionResult = (result: any) => {
+    const aiProbability = result.ai_probability ?? 0;
+
+    if (aiProbability >= 0.75) {
+      this.consecutiveAiChunks += 1;
+    } else {
+      this.consecutiveAiChunks = Math.max(0, this.consecutiveAiChunks - 1);
+    }
+
+    // If 3 consecutive chunks show >= 75% AI scam probability, trigger Red Alert
+    if (this.consecutiveAiChunks >= 3 && this.onThreatCallback) {
+      this.onThreatCallback({
+        riskLevel: 'high',
+        probability: Math.round(aiProbability * 100),
+        verdict: 'ai_generated',
+        chunkCount: this.consecutiveAiChunks,
+      });
+    }
+  };
 
   public async blockNumber(phoneNumber: string): Promise<boolean> {
     if (Platform.OS === 'android' && CallInterceptorModule) {
