@@ -2,8 +2,11 @@ import { Platform } from 'react-native';
 import { CallOfflineAiService } from '../src/services/CallOfflineAiService';
 
 export class CallShieldApi {
+  // Your Laptop's local Wi-Fi IP address: 10.172.92.231
+  private static wifiIp = '10.172.92.231';
+
   private static defaultBaseUrl = Platform.OS === 'android'
-    ? 'http://10.0.2.2:8000/api/v1'
+    ? `http://${CallShieldApi.wifiIp}:8000/api/v1`
     : 'http://localhost:8000/api/v1';
 
   public static baseUrl: string = CallShieldApi.defaultBaseUrl;
