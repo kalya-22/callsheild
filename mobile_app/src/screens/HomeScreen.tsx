@@ -7,7 +7,11 @@ import {
   ScrollView,
   SafeAreaView,
   Switch,
+  ActivityIndicator,
+  Platform,
+  Alert,
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import { C } from '../theme/colors';
 import { GlassCard } from '../components/GlassCard';
 import { ShieldLogo } from '../components/ShieldLogo';
@@ -31,12 +35,15 @@ const mockRecentCalls: RecentCall[] = [
 
 interface HomeScreenProps {
   onStartLiveCall?: () => void;
+  onUploadSuccess?: (predictionResult: any) => void;
 }
 
-export function HomeScreen({ onStartLiveCall }: HomeScreenProps) {
+export function HomeScreen({ onStartLiveCall, onUploadSuccess }: HomeScreenProps) {
   const [protectionActive, setProtectionActive] = useState(true);
   const [backendOnline, setBackendOnline] = useState(true);
   const [recentCalls, setRecentCalls] = useState<RecentCall[]>(mockRecentCalls);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
 
   useEffect(() => {
     async function checkHealth() {
@@ -51,6 +58,55 @@ export function HomeScreen({ onStartLiveCall }: HomeScreenProps) {
     const interval = setInterval(checkHealth, 15000);
     return () => clearInterval(interval);
   }, []);
+
+  async function handlePickAndUploadAudio() {
+    try {
+      setIsUploading(true);
+      setUploadError('');
+
+      const pickerResult = await DocumentPicker.getDocumentAsync({
+        type: ['audio/*'],
+        copyToCacheDirectory: true,
+      });
+
+      if (pickerResult.canceled || !pickerResult.assets || pickerResult.assets.length === 0) {
+        setIsUploading(false);
+        return;
+      }
+
+      const asset = pickerResult.assets[0];
+      let fileBlob: Blob | undefined;
+
+      if (Platform.OS === 'web') {
+        const response = await fetch(asset.uri);
+        fileBlob = await response.blob();
+      }
+
+      const result = await CallShieldApi.predictAudioFile(
+        asset.uri,
+        asset.name || 'audio_sample.wav',
+        asset.mimeType || 'audio/wav',
+        fileBlob
+      );
+
+      setIsUploading(false);
+
+      if (onUploadSuccess) {
+        onUploadSuccess(result);
+      } else {
+        const score = Math.round((result.ai_probability ?? 0.85) * 100);
+        Alert.alert(
+          'AI Detection Complete',
+          `File: ${asset.name}\nResult: ${result.predicted_label}\nAI Confidence: ${score}%`
+        );
+      }
+    } catch (err: any) {
+      setIsUploading(false);
+      const errMsg = err.message || 'File upload failed. Ensure FastAPI backend is running.';
+      setUploadError(errMsg);
+      Alert.alert('Upload Failed', errMsg);
+    }
+  }
 
   const getRiskStyle = (risk: RecentCall['risk']) => {
     switch (risk) {
@@ -99,6 +155,31 @@ export function HomeScreen({ onStartLiveCall }: HomeScreenProps) {
             value={protectionActive}
             onValueChange={setProtectionActive}
           />
+        </GlassCard>
+
+        {/* Upload Audio File Banner */}
+        <GlassCard bright style={styles.uploadCard}>
+          <View style={styles.uploadInfo}>
+            <Text style={styles.uploadTitle}>📁 Upload Audio File for AI Detection</Text>
+            <Text style={styles.uploadSub}>
+              Select any .wav, .mp3, or .flac recording to test for AI voice cloning and vishing scam patterns.
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={[styles.uploadBtn, isUploading && styles.uploadBtnDisabled]}
+            onPress={handlePickAndUploadAudio}
+            disabled={isUploading}
+          >
+            {isUploading ? (
+              <ActivityIndicator color={C.text} size="small" />
+            ) : (
+              <Text style={styles.uploadBtnText}>Select & Upload Audio</Text>
+            )}
+          </TouchableOpacity>
+
+          {uploadError ? <Text style={styles.errorText}>{uploadError}</Text> : null}
         </GlassCard>
 
         {/* Action Button: Simulate / Monitor Incoming Call */}
@@ -238,6 +319,46 @@ const styles = StyleSheet.create({
   shieldStatusSub: {
     fontSize: 12,
     color: C.textSec,
+  },
+  uploadCard: {
+    padding: 18,
+    marginBottom: 16,
+    borderColor: 'rgba(6, 182, 212, 0.3)',
+  },
+  uploadInfo: {
+    marginBottom: 14,
+  },
+  uploadTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: C.text,
+    marginBottom: 4,
+  },
+  uploadSub: {
+    fontSize: 12,
+    color: C.textSec,
+    lineHeight: 18,
+  },
+  uploadBtn: {
+    height: 48,
+    backgroundColor: C.accent,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadBtnDisabled: {
+    opacity: 0.7,
+  },
+  uploadBtnText: {
+    color: C.bgDeep,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  errorText: {
+    color: C.danger,
+    fontSize: 12,
+    marginTop: 8,
+    textAlign: 'center',
   },
   liveCallButton: {
     height: 50,

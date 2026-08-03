@@ -17,13 +17,22 @@ export class CallShieldApi {
     }
   }
 
-  public static async predictAudioFile(fileUri: string, fileName: string): Promise<any> {
+  public static async predictAudioFile(
+    fileUri: string,
+    fileName: string,
+    mimeType?: string,
+    fileBlob?: Blob
+  ): Promise<any> {
     const formData = new FormData();
-    formData.append('file', {
-      uri: fileUri,
-      name: fileName,
-      type: 'audio/wav',
-    } as any);
+    if (fileBlob) {
+      formData.append('file', fileBlob, fileName);
+    } else {
+      formData.append('file', {
+        uri: fileUri,
+        name: fileName,
+        type: mimeType || 'audio/wav',
+      } as any);
+    }
 
     const response = await fetch(`${CallShieldApi.baseUrl}/predict`, {
       method: 'POST',
