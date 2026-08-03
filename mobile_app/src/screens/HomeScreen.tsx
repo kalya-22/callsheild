@@ -35,18 +35,27 @@ const mockRecentCalls: RecentCall[] = [
 ];
 
 interface HomeScreenProps {
+  userName?: string;
   onStartLiveCall?: () => void;
   onUploadSuccess?: (predictionResult: any) => void;
   onTriggerAlert?: () => void;
 }
 
-export function HomeScreen({ onStartLiveCall, onUploadSuccess, onTriggerAlert }: HomeScreenProps) {
+export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploadSuccess, onTriggerAlert }: HomeScreenProps) {
   const [protectionActive, setProtectionActive] = useState(true);
   const [nativeInterceptorActive, setNativeInterceptorActive] = useState(true);
   const [backendOnline, setBackendOnline] = useState(true);
   const [recentCalls, setRecentCalls] = useState<RecentCall[]>(mockRecentCalls);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+
+  // Dynamic time of day greeting
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning,';
+    if (hour < 17) return 'Good afternoon,';
+    return 'Good evening,';
+  };
 
   useEffect(() => {
     async function checkHealth() {
@@ -143,8 +152,8 @@ export function HomeScreen({ onStartLiveCall, onUploadSuccess, onTriggerAlert }:
         {/* Header Bar */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greetingText}>Good day,</Text>
-            <Text style={styles.userName}>John Doe 👋</Text>
+            <Text style={styles.greetingText}>{getGreeting()}</Text>
+            <Text style={styles.userName}>{userName} 👋</Text>
           </View>
 
           {/* Backend Server Status Pill */}

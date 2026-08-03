@@ -41,6 +41,7 @@ export type ScreenState =
 export function AppNavigator() {
   const [currentScreen, setCurrentScreen] = useState<ScreenState>('splash');
   const [selectedReportItem, setSelectedReportItem] = useState<any>(null);
+  const [userName, setUserName] = useState<string>('Alex Johnson');
 
   // Splash Screen
   if (currentScreen === 'splash') {
@@ -59,7 +60,14 @@ export function AppNavigator() {
 
   // Login Screen
   if (currentScreen === 'login') {
-    return <LoginScreen onLoginSuccess={() => setCurrentScreen('home')} />;
+    return (
+      <LoginScreen
+        onLoginSuccess={(name) => {
+          if (name) setUserName(name);
+          setCurrentScreen('home');
+        }}
+      />
+    );
   }
 
   // Live Call Screen
@@ -117,7 +125,10 @@ export function AppNavigator() {
     <SafeAreaView style={styles.container}>
       <View style={styles.mainContent}>
         {currentScreen === 'home' && (
-          <HomeScreen onStartLiveCall={() => setCurrentScreen('live_call')} />
+          <HomeScreen
+            userName={userName}
+            onStartLiveCall={() => setCurrentScreen('live_call')}
+          />
         )}
 
         {currentScreen === 'live_analysis' && (
