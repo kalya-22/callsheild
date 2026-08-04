@@ -1,12 +1,36 @@
-import { Platform } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { CallOfflineAiService } from '../src/services/CallOfflineAiService';
 
+function getDynamicHostIp(): string {
+  try {
+    const hostUri = Constants.expoConfig?.hostUri;
+    if (hostUri) {
+      const ip = hostUri.split(':')[0];
+      if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
+        return ip;
+      }
+    }
+
+    const scriptURL = NativeModules?.SourceCode?.scriptURL;
+    if (scriptURL) {
+      const match = scriptURL.match(/^https?:\/\/([^:/]+)/);
+      if (match && match[1] && match[1] !== 'localhost' && match[1] !== '127.0.0.1') {
+        return match[1];
+      }
+    }
+  } catch (err) {
+    // Fallback if URL parsing fails
+  }
+
+  return '10.172.92.231';
+}
+
 export class CallShieldApi {
-  // Your Laptop's local Wi-Fi IP address: 10.172.92.231
-  private static wifiIp = '10.172.92.231';
+  private static dynamicIp = getDynamicHostIp();
 
   private static defaultBaseUrl = Platform.OS === 'android'
-    ? `http://${CallShieldApi.wifiIp}:8000/api/v1`
+    ? `http://${CallShieldApi.dynamicIp}:8000/api/v1`
     : 'http://localhost:8000/api/v1';
 
   public static baseUrl: string = CallShieldApi.defaultBaseUrl;
