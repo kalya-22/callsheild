@@ -1,22 +1,37 @@
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { Platform, Alert } from 'react-native';
 
-// Configure notification behavior
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+const isExpoGo =
+  Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
+  Constants.appOwnership === 'expo';
+
+// Safe notification handler configuration for Expo Go & Standalone Builds
+try {
+  if (!isExpoGo) {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
+    });
+  }
+} catch (err) {
+  console.log('[CallShield Notifications] Notification handler skipped in Expo Go');
+}
 
 export class CallNotificationService {
   private static isConfigured = false;
 
   public static async configure(): Promise<boolean> {
     if (this.isConfigured) return true;
+    if (isExpoGo) {
+      this.isConfigured = true;
+      return true;
+    }
 
     try {
       const permissionResp: any = await Notifications.getPermissionsAsync();
@@ -49,7 +64,19 @@ export class CallNotificationService {
     }
   }
 
-  public static async sendScamAlertNotification(phoneNumber: string, riskScore: number, reportData: any): Promise<void> {
+  public static async sendScamAlertNotification(
+    phoneNumber: string,
+    riskScore: number,
+    reportData: any
+  ): Promise<void> {
+    if (isExpoGo) {
+      Alert.alert(
+        `🚨 SCAM THREAT DETECTED (${riskScore}% Risk)`,
+        `Incoming call from ${phoneNumber} detected as AI Voice Clone / Vishing Scam.`
+      );
+      return;
+    }
+
     await this.configure();
 
     try {
@@ -64,11 +91,26 @@ export class CallNotificationService {
         trigger: null,
       });
     } catch (err) {
-      console.warn('[CallShield Notifications] Send alert error:', err);
+      Alert.alert(
+        `🚨 SCAM THREAT DETECTED (${riskScore}% Risk)`,
+        `Incoming call from ${phoneNumber} detected as AI Voice Clone / Vishing Scam.`
+      );
     }
   }
 
-  public static async sendSafeCallNotification(phoneNumber: string, confidence: number, reportData: any): Promise<void> {
+  public static async sendSafeCallNotification(
+    phoneNumber: string,
+    confidence: number,
+    reportData: any
+  ): Promise<void> {
+    if (isExpoGo) {
+      Alert.alert(
+        `🛡️ VERIFIED SAFE CALL (${confidence}% Safe)`,
+        `Incoming call from ${phoneNumber} verified as authentic Human Voice.`
+      );
+      return;
+    }
+
     await this.configure();
 
     try {
@@ -83,7 +125,10 @@ export class CallNotificationService {
         trigger: null,
       });
     } catch (err) {
-      console.warn('[CallShield Notifications] Send safe error:', err);
+      Alert.alert(
+        `🛡️ VERIFIED SAFE CALL (${confidence}% Safe)`,
+        `Incoming call from ${phoneNumber} verified as authentic Human Voice.`
+      );
     }
   }
 }
