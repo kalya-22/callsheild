@@ -1,4 +1,3 @@
-import * as Notifications from 'expo-notifications';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform, Alert } from 'react-native';
 
@@ -6,21 +5,13 @@ const isExpoGo =
   Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
   Constants.appOwnership === 'expo';
 
-// Safe notification handler configuration for Expo Go & Standalone Builds
-try {
-  if (!isExpoGo) {
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: true,
-        shouldShowBanner: true,
-        shouldShowList: true,
-      }),
-    });
+function getNotificationsModule(): any {
+  if (isExpoGo) return null;
+  try {
+    return require('expo-notifications');
+  } catch (err) {
+    return null;
   }
-} catch (err) {
-  console.log('[CallShield Notifications] Notification handler skipped in Expo Go');
 }
 
 export class CallNotificationService {
@@ -33,7 +24,23 @@ export class CallNotificationService {
       return true;
     }
 
+    const Notifications = getNotificationsModule();
+    if (!Notifications) {
+      this.isConfigured = true;
+      return true;
+    }
+
     try {
+      Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowAlert: true,
+          shouldPlaySound: true,
+          shouldSetBadge: true,
+          shouldShowBanner: true,
+          shouldShowList: true,
+        }),
+      });
+
       const permissionResp: any = await Notifications.getPermissionsAsync();
       let isGranted = permissionResp?.status === 'granted' || permissionResp?.granted === true;
 
@@ -77,6 +84,15 @@ export class CallNotificationService {
       return;
     }
 
+    const Notifications = getNotificationsModule();
+    if (!Notifications) {
+      Alert.alert(
+        `🚨 SCAM THREAT DETECTED (${riskScore}% Risk)`,
+        `Incoming call from ${phoneNumber} detected as AI Voice Clone / Vishing Scam.`
+      );
+      return;
+    }
+
     await this.configure();
 
     try {
@@ -104,6 +120,15 @@ export class CallNotificationService {
     reportData: any
   ): Promise<void> {
     if (isExpoGo) {
+      Alert.alert(
+        `🛡️ VERIFIED SAFE CALL (${confidence}% Safe)`,
+        `Incoming call from ${phoneNumber} verified as authentic Human Voice.`
+      );
+      return;
+    }
+
+    const Notifications = getNotificationsModule();
+    if (!Notifications) {
       Alert.alert(
         `🛡️ VERIFIED SAFE CALL (${confidence}% Safe)`,
         `Incoming call from ${phoneNumber} verified as authentic Human Voice.`
