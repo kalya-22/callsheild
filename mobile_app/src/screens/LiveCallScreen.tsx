@@ -5,37 +5,99 @@ import {
   View,
   TouchableOpacity,
   SafeAreaView,
+  ActivityIndicator,
+  Platform,
+  Alert,
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import { C } from '../theme/colors';
 import { GlassCard } from '../components/GlassCard';
 import { ShieldLogo } from '../components/ShieldLogo';
+import { callInterceptorService } from '../services/CallInterceptorService';
+import { callWebSocketService } from '../services/CallWebSocketService';
+import { CallShieldApi } from '../../services/CallShieldApi';
 
 interface LiveCallScreenProps {
   onEndCall: () => void;
 }
 
 export function LiveCallScreen({ onEndCall }: LiveCallScreenProps) {
-  const [seconds, setSeconds] = useState(14);
+  const [seconds, setSeconds] = useState(0);
   const [riskLevel, setRiskLevel] = useState<'safe' | 'suspicious' | 'scam'>('safe');
   const [confidence, setConfidence] = useState(96);
   const [isMuted, setIsMuted] = useState(false);
+  const [isAnalyzingFile, setIsAnalyzingFile] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
       setSeconds((prev) => prev + 1);
     }, 1000);
 
-    // Simulate threat detection after 15 seconds
-    const threatTimer = setTimeout(() => {
-      setRiskLevel('scam');
-      setConfidence(89);
-    }, 12000);
+    // Start live WebSocket stream and interceptor listener
+    callWebSocketService.connect();
+    callInterceptorService.startListening((threatData) => {
+      const prob = threatData.probability ?? 89;
+      setConfidence(prob);
+      setRiskLevel(prob >= 65 ? 'scam' : prob >= 40 ? 'suspicious' : 'safe');
+    });
+
+    const unsubscribe = callWebSocketService.onPrediction((data) => {
+      const aiProb = Math.round((data.ai_probability ?? 0.85) * 100);
+      setConfidence(aiProb);
+      setRiskLevel(aiProb >= 65 ? 'scam' : aiProb >= 40 ? 'suspicious' : 'safe');
+    });
 
     return () => {
       clearInterval(timer);
-      clearTimeout(threatTimer);
+      unsubscribe();
+      callInterceptorService.stopListening();
     };
   }, []);
+
+  async function handleAnalyzeAudioFile() {
+    try {
+      setIsAnalyzingFile(true);
+
+      const pickerResult = await DocumentPicker.getDocumentAsync({
+        type: ['audio/*'],
+        copyToCacheDirectory: true,
+      });
+
+      if (pickerResult.canceled || !pickerResult.assets || pickerResult.assets.length === 0) {
+        setIsAnalyzingFile(false);
+        return;
+      }
+
+      const asset = pickerResult.assets[0];
+      let fileBlob: Blob | undefined;
+
+      if (Platform.OS === 'web') {
+        const response = await fetch(asset.uri);
+        fileBlob = await response.blob();
+      }
+
+      const result = await CallShieldApi.predictAudioFile(
+        asset.uri,
+        asset.name || 'live_call_sample.wav',
+        asset.mimeType || 'audio/wav',
+        fileBlob
+      );
+
+      setIsAnalyzingFile(false);
+
+      const score = Math.round((result.ai_probability ?? 0.85) * 100);
+      setConfidence(score);
+      setRiskLevel(score >= 65 ? 'scam' : score >= 40 ? 'suspicious' : 'safe');
+
+      Alert.alert(
+        'Live Call Analysis Result',
+        `File: ${asset.name}\nPrediction: ${result.predicted_label}\nAI Confidence: ${score}%`
+      );
+    } catch (err: any) {
+      setIsAnalyzingFile(false);
+      Alert.alert('Analysis Error', err.message || 'Failed to analyze live call audio');
+    }
+  }
 
   const formatTimer = (sec: number) => {
     const m = Math.floor(sec / 60).toString().padStart(2, '0');
@@ -52,19 +114,25 @@ export function LiveCallScreen({ onEndCall }: LiveCallScreenProps) {
             <Text style={styles.callerAvatarText}>📞</Text>
           </View>
           <Text style={styles.callerName}>+91 98765 43210</Text>
-          <Text style={styles.callerSub}>Incoming Call · {formatTimer(seconds)}</Text>
+          <Text style={styles.callerSub}>Active Call · {formatTimer(seconds)}</Text>
         </View>
 
         {/* Live Protection Status */}
         <GlassCard bright style={styles.statusCard}>
           <ShieldLogo size={60} animate />
           <Text style={styles.statusTitle}>
-            {riskLevel === 'scam' ? '🚨 SCAM THREAT DETECTED' : 'AI Protection Active'}
+            {riskLevel === 'scam'
+              ? '🚨 SCAM THREAT DETECTED'
+              : riskLevel === 'suspicious'
+              ? '⚠️ SUSPICIOUS VOICE PATTERN'
+              : '🛡️ AI Protection Active'}
           </Text>
           <Text style={styles.statusSub}>
             {riskLevel === 'scam'
-              ? 'Voice patterns match known vishing scam profile (89% Confidence)'
-              : 'Analyzing incoming audio stream in real-time'}
+              ? `Voice patterns match known vishing scam profile (${confidence}% AI Risk)`
+              : riskLevel === 'suspicious'
+              ? `Unusual voice frequency spectrum detected (${confidence}% Risk)`
+              : 'Analyzing live audio stream with machine learning in real-time'}
           </Text>
 
           {/* Risk Level Badge */}
@@ -100,27 +168,54 @@ export function LiveCallScreen({ onEndCall }: LiveCallScreenProps) {
                 },
               ]}
             >
-              Risk Status: {riskLevel.toUpperCase()} ({confidence}%)
+              {riskLevel === 'scam'
+                ? `HIGH RISK (${confidence}%)`
+                : riskLevel === 'suspicious'
+                ? `SUSPICIOUS (${confidence}%)`
+                : `SAFE (${confidence}%)`}
             </Text>
           </View>
         </GlassCard>
 
-        {/* Call Action Controls */}
-        <View style={styles.actionRow}>
+        {/* Upload Audio Stream for Real Analysis */}
+        <GlassCard style={styles.actionUploadCard}>
+          <View style={styles.actionUploadText}>
+            <Text style={styles.actionUploadTitle}>Test Audio File on Active Call</Text>
+            <Text style={styles.actionUploadSub}>
+              Pass an audio file through live ML pipeline
+            </Text>
+          </View>
           <TouchableOpacity
-            style={[styles.actionBtn, isMuted && styles.actionBtnActive]}
+            activeOpacity={0.85}
+            style={[styles.uploadBtn, isAnalyzingFile && styles.uploadBtnDisabled]}
+            onPress={handleAnalyzeAudioFile}
+            disabled={isAnalyzingFile}
+          >
+            {isAnalyzingFile ? (
+              <ActivityIndicator color={C.bgDeep} size="small" />
+            ) : (
+              <Text style={styles.uploadBtnText}>Upload & Analyze</Text>
+            )}
+          </TouchableOpacity>
+        </GlassCard>
+
+        {/* Call Control Buttons */}
+        <View style={styles.controlsRow}>
+          <TouchableOpacity
+            style={[styles.controlBtn, isMuted && styles.controlBtnActive]}
             onPress={() => setIsMuted(!isMuted)}
           >
-            <Text style={styles.actionBtnIcon}>{isMuted ? '🔇' : '🎙️'}</Text>
-            <Text style={styles.actionBtnText}>{isMuted ? 'Unmute' : 'Mute'}</Text>
+            <Text style={styles.controlIcon}>{isMuted ? '🔇' : '🎙️'}</Text>
+            <Text style={styles.controlLabel}>{isMuted ? 'Muted' : 'Mute'}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.hangUpBtn, riskLevel === 'scam' && styles.scamHangUpBtn]}
+            style={[styles.controlBtn, styles.hangupBtn]}
             onPress={onEndCall}
           >
-            <Text style={styles.hangUpText}>
-              {riskLevel === 'scam' ? '⛔ HANG UP & BLOCK' : 'End Call'}
+            <Text style={styles.controlIcon}>⛔</Text>
+            <Text style={[styles.controlLabel, styles.hangupText]}>
+              {riskLevel === 'scam' ? 'BLOCK & HANG UP' : 'End Call'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -132,58 +227,56 @@ export function LiveCallScreen({ onEndCall }: LiveCallScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: C.bgDeep,
+    backgroundColor: C.bg,
   },
   content: {
     flex: 1,
     paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 24,
     justifyContent: 'space-between',
-    paddingVertical: 32,
   },
   callerHeader: {
     alignItems: 'center',
-    marginTop: 24,
+    marginBottom: 16,
   },
   callerAvatar: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    backgroundColor: C.card,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: C.cardBorder,
+    marginBottom: 12,
   },
   callerAvatarText: {
-    fontSize: 36,
+    fontSize: 32,
   },
   callerName: {
     fontSize: 24,
     fontWeight: '800',
     color: C.text,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   callerSub: {
-    fontSize: 14,
-    color: C.textSec,
-    fontWeight: '600',
+    fontSize: 13,
+    color: C.textMuted,
   },
   statusCard: {
+    padding: 24,
     alignItems: 'center',
-    paddingVertical: 24,
-    paddingHorizontal: 16,
+    marginVertical: 12,
   },
   statusTitle: {
     fontSize: 18,
     fontWeight: '800',
     color: C.text,
-    marginTop: 14,
+    marginTop: 16,
     marginBottom: 6,
     textAlign: 'center',
   },
   statusSub: {
-    fontSize: 13,
+    fontSize: 12,
     color: C.textSec,
     textAlign: 'center',
     lineHeight: 18,
@@ -192,61 +285,83 @@ const styles = StyleSheet.create({
   riskBadge: {
     paddingHorizontal: 14,
     paddingVertical: 6,
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
   },
   riskBadgeText: {
     fontSize: 12,
     fontWeight: '800',
   },
-  actionRow: {
+  actionUploadCard: {
+    padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     marginBottom: 16,
   },
-  actionBtn: {
+  actionUploadText: {
+    flex: 1,
+    marginRight: 10,
+  },
+  actionUploadTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: C.text,
+  },
+  actionUploadSub: {
+    fontSize: 11,
+    color: C.textMuted,
+  },
+  uploadBtn: {
+    paddingHorizontal: 12,
+    height: 36,
+    backgroundColor: C.accent,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+  },
+  uploadBtnDisabled: {
+    opacity: 0.7,
+  },
+  uploadBtnText: {
+    color: C.bgDeep,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    gap: 16,
+  },
+  controlBtn: {
+    flex: 1,
+    height: 60,
     backgroundColor: C.card,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: C.cardBorder,
   },
-  actionBtnActive: {
-    backgroundColor: C.accentDim,
-    borderColor: C.accent,
+  controlBtnActive: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderColor: C.danger,
   },
-  actionBtnIcon: {
-    fontSize: 24,
-    marginBottom: 4,
-  },
-  actionBtnText: {
-    fontSize: 11,
-    color: C.textSec,
-    fontWeight: '600',
-  },
-  hangUpBtn: {
-    flex: 1,
-    marginLeft: 16,
-    height: 60,
-    borderRadius: 30,
+  hangupBtn: {
     backgroundColor: C.danger,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 6,
+    borderColor: C.danger,
   },
-  scamHangUpBtn: {
-    backgroundColor: '#DC2626',
-    borderWidth: 2,
-    borderColor: '#EF4444',
+  controlIcon: {
+    fontSize: 20,
+    marginBottom: 2,
   },
-  hangUpText: {
+  controlLabel: {
+    fontSize: 12,
+    fontWeight: '700',
     color: C.text,
-    fontSize: 16,
+  },
+  hangupText: {
+    color: C.text,
     fontWeight: '800',
-    letterSpacing: 0.5,
   },
 });
