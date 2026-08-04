@@ -4,6 +4,7 @@ import {
   Text,
   View,
   TouchableOpacity,
+  ScrollView,
   SafeAreaView,
   ActivityIndicator,
   Platform,
@@ -13,8 +14,12 @@ import * as DocumentPicker from 'expo-document-picker';
 import { C } from '../theme/colors';
 import { GlassCard } from '../components/GlassCard';
 import { ShieldLogo } from '../components/ShieldLogo';
-import { callInterceptorService } from '../services/CallInterceptorService';
-import { callWebSocketService } from '../services/CallWebSocketService';
+import { LiveCallReportModal } from '../components/LiveCallReportModal';
+import {
+  callLiveStreamEngine,
+  ChunkAnalysisItem,
+  FinalCallReportData,
+} from '../services/CallLiveStreamEngine';
 import { CallShieldApi } from '../../services/CallShieldApi';
 
 interface LiveCallScreenProps {
@@ -23,40 +28,53 @@ interface LiveCallScreenProps {
 
 export function LiveCallScreen({ onEndCall }: LiveCallScreenProps) {
   const [seconds, setSeconds] = useState(0);
-  const [riskLevel, setRiskLevel] = useState<'safe' | 'suspicious' | 'scam'>('safe');
-  const [confidence, setConfidence] = useState(96);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isAnalyzingFile, setIsAnalyzingFile] = useState(false);
+  const [isMonitoring, setIsMonitoring] = useState(false);
+  const [statusBadge, setStatusBadge] = useState<'safe' | 'suspicious' | 'scam'>('safe');
+  const [currentConfidence, setCurrentConfidence] = useState(96);
+  const [chunkTimeline, setChunkTimeline] = useState<ChunkAnalysisItem[]>([]);
+  const [finalReportData, setFinalReportData] = useState<FinalCallReportData | null>(null);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
       setSeconds((prev) => prev + 1);
     }, 1000);
 
-    // Start live WebSocket stream and interceptor listener
-    callWebSocketService.connect();
-    callInterceptorService.startListening((threatData) => {
-      const prob = threatData.probability ?? 89;
-      setConfidence(prob);
-      setRiskLevel(prob >= 65 ? 'scam' : prob >= 40 ? 'suspicious' : 'safe');
-    });
-
-    const unsubscribe = callWebSocketService.onPrediction((data) => {
-      const aiProb = Math.round((data.ai_probability ?? 0.85) * 100);
-      setConfidence(aiProb);
-      setRiskLevel(aiProb >= 65 ? 'scam' : aiProb >= 40 ? 'suspicious' : 'safe');
-    });
+    // Auto-start live call monitoring on mount
+    handleStartProtection();
 
     return () => {
       clearInterval(timer);
-      unsubscribe();
-      callInterceptorService.stopListening();
+      if (callLiveStreamEngine.isCurrentlyMonitoring()) {
+        callLiveStreamEngine.stopLiveProtection();
+      }
     };
   }, []);
 
-  async function handleAnalyzeAudioFile() {
+  async function handleStartProtection() {
+    const success = await callLiveStreamEngine.startLiveProtection((chunk, currentList) => {
+      setChunkTimeline([...currentList]);
+      const conf = chunk.confidencePercent;
+      setCurrentConfidence(conf);
+      setStatusBadge(chunk.riskLevel);
+    });
+
+    if (success) {
+      setIsMonitoring(true);
+    }
+  }
+
+  function handleStopMonitoring() {
+    const report = callLiveStreamEngine.stopLiveProtection();
+    setIsMonitoring(false);
+    setFinalReportData(report);
+    setShowReportModal(true);
+  }
+
+  async function handlePickAudioFile() {
     try {
-      setIsAnalyzingFile(true);
+      setIsUploading(true);
 
       const pickerResult = await DocumentPicker.getDocumentAsync({
         type: ['audio/*'],
@@ -64,7 +82,7 @@ export function LiveCallScreen({ onEndCall }: LiveCallScreenProps) {
       });
 
       if (pickerResult.canceled || !pickerResult.assets || pickerResult.assets.length === 0) {
-        setIsAnalyzingFile(false);
+        setIsUploading(false);
         return;
       }
 
@@ -83,19 +101,19 @@ export function LiveCallScreen({ onEndCall }: LiveCallScreenProps) {
         fileBlob
       );
 
-      setIsAnalyzingFile(false);
+      setIsUploading(false);
 
       const score = Math.round((result.ai_probability ?? 0.85) * 100);
-      setConfidence(score);
-      setRiskLevel(score >= 65 ? 'scam' : score >= 40 ? 'suspicious' : 'safe');
+      setCurrentConfidence(score);
+      setStatusBadge(score >= 65 ? 'scam' : score >= 40 ? 'suspicious' : 'safe');
 
       Alert.alert(
-        'Live Call Analysis Result',
+        'AI Detection Result',
         `File: ${asset.name}\nPrediction: ${result.predicted_label}\nAI Confidence: ${score}%`
       );
     } catch (err: any) {
-      setIsAnalyzingFile(false);
-      Alert.alert('Analysis Error', err.message || 'Failed to analyze live call audio');
+      setIsUploading(false);
+      Alert.alert('Upload Error', err.message || 'Failed to analyze live audio file.');
     }
   }
 
@@ -107,49 +125,49 @@ export function LiveCallScreen({ onEndCall }: LiveCallScreenProps) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content}>
         {/* Caller Details Header */}
         <View style={styles.callerHeader}>
           <View style={styles.callerAvatar}>
             <Text style={styles.callerAvatarText}>📞</Text>
           </View>
           <Text style={styles.callerName}>+91 98765 43210</Text>
-          <Text style={styles.callerSub}>Active Call · {formatTimer(seconds)}</Text>
+          <Text style={styles.callerSub}>Active Ongoing Call · {formatTimer(seconds)}</Text>
         </View>
 
-        {/* Live Protection Status */}
+        {/* Live Protection Status Card */}
         <GlassCard bright style={styles.statusCard}>
-          <ShieldLogo size={60} animate />
+          <ShieldLogo size={60} animate={isMonitoring} />
           <Text style={styles.statusTitle}>
-            {riskLevel === 'scam'
-              ? '🚨 SCAM THREAT DETECTED'
-              : riskLevel === 'suspicious'
+            {statusBadge === 'scam'
+              ? '🚨 HIGH RISK SCAM DETECTED'
+              : statusBadge === 'suspicious'
               ? '⚠️ SUSPICIOUS VOICE PATTERN'
-              : '🛡️ AI Protection Active'}
+              : '🛡️ AI Protection Active (Safe)'}
           </Text>
           <Text style={styles.statusSub}>
-            {riskLevel === 'scam'
-              ? `Voice patterns match known vishing scam profile (${confidence}% AI Risk)`
-              : riskLevel === 'suspicious'
-              ? `Unusual voice frequency spectrum detected (${confidence}% Risk)`
-              : 'Analyzing live audio stream with machine learning in real-time'}
+            {statusBadge === 'scam'
+              ? `Synthetic voice artifacts identified (${currentConfidence}% AI Probability)`
+              : statusBadge === 'suspicious'
+              ? `Unusual frequency spectrum observed (${currentConfidence}% Risk)`
+              : 'Processing 2-3s audio chunks continuously in real-time'}
           </Text>
 
-          {/* Risk Level Badge */}
+          {/* Live Status Badge */}
           <View
             style={[
               styles.riskBadge,
               {
                 backgroundColor:
-                  riskLevel === 'scam'
+                  statusBadge === 'scam'
                     ? C.dangerDim
-                    : riskLevel === 'suspicious'
+                    : statusBadge === 'suspicious'
                     ? C.warningDim
                     : C.successDim,
                 borderColor:
-                  riskLevel === 'scam'
+                  statusBadge === 'scam'
                     ? C.danger
-                    : riskLevel === 'suspicious'
+                    : statusBadge === 'suspicious'
                     ? C.warning
                     : C.success,
               },
@@ -160,66 +178,120 @@ export function LiveCallScreen({ onEndCall }: LiveCallScreenProps) {
                 styles.riskBadgeText,
                 {
                   color:
-                    riskLevel === 'scam'
+                    statusBadge === 'scam'
                       ? C.danger
-                      : riskLevel === 'suspicious'
+                      : statusBadge === 'suspicious'
                       ? C.warning
                       : C.success,
                 },
               ]}
             >
-              {riskLevel === 'scam'
-                ? `HIGH RISK (${confidence}%)`
-                : riskLevel === 'suspicious'
-                ? `SUSPICIOUS (${confidence}%)`
-                : `SAFE (${confidence}%)`}
+              STATUS: {statusBadge.toUpperCase()} ({currentConfidence}%)
             </Text>
           </View>
         </GlassCard>
 
-        {/* Upload Audio Stream for Real Analysis */}
-        <GlassCard style={styles.actionUploadCard}>
-          <View style={styles.actionUploadText}>
-            <Text style={styles.actionUploadTitle}>Test Audio File on Active Call</Text>
-            <Text style={styles.actionUploadSub}>
-              Pass an audio file through live ML pipeline
-            </Text>
-          </View>
-          <TouchableOpacity
-            activeOpacity={0.85}
-            style={[styles.uploadBtn, isAnalyzingFile && styles.uploadBtnDisabled]}
-            onPress={handleAnalyzeAudioFile}
-            disabled={isAnalyzingFile}
-          >
-            {isAnalyzingFile ? (
-              <ActivityIndicator color={C.bgDeep} size="small" />
+        {/* Start Live Protection / Stop Monitoring Controls */}
+        <View style={styles.controlsRow}>
+          {!isMonitoring ? (
+            <TouchableOpacity
+              style={[styles.controlBtn, styles.startBtn]}
+              onPress={handleStartProtection}
+            >
+              <Text style={styles.controlIcon}>▶️</Text>
+              <Text style={styles.controlLabelText}>Start Live Protection</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.controlBtn, styles.stopBtn]}
+              onPress={handleStopMonitoring}
+            >
+              <Text style={styles.controlIcon}>⏹️</Text>
+              <Text style={styles.controlLabelText}>Stop Monitoring</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity style={[styles.controlBtn, styles.uploadBtn]} onPress={handlePickAudioFile}>
+            {isUploading ? (
+              <ActivityIndicator color={C.text} size="small" />
             ) : (
-              <Text style={styles.uploadBtnText}>Upload & Analyze</Text>
+              <>
+                <Text style={styles.controlIcon}>📁</Text>
+                <Text style={styles.controlLabelText}>Upload Audio</Text>
+              </>
             )}
           </TouchableOpacity>
-        </GlassCard>
-
-        {/* Call Control Buttons */}
-        <View style={styles.controlsRow}>
-          <TouchableOpacity
-            style={[styles.controlBtn, isMuted && styles.controlBtnActive]}
-            onPress={() => setIsMuted(!isMuted)}
-          >
-            <Text style={styles.controlIcon}>{isMuted ? '🔇' : '🎙️'}</Text>
-            <Text style={styles.controlLabel}>{isMuted ? 'Muted' : 'Mute'}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.controlBtn, styles.hangupBtn]}
-            onPress={onEndCall}
-          >
-            <Text style={styles.controlIcon}>⛔</Text>
-            <Text style={[styles.controlLabel, styles.hangupText]}>
-              {riskLevel === 'scam' ? 'BLOCK & HANG UP' : 'End Call'}
-            </Text>
-          </TouchableOpacity>
         </View>
-      </View>
+
+        {/* Real-Time Detection Timeline */}
+        <Text style={styles.sectionTitle}>Real-Time Detection Timeline (2-3s Chunks)</Text>
+
+        {chunkTimeline.length === 0 ? (
+          <GlassCard style={styles.emptyCard}>
+            <ActivityIndicator color={C.accent} size="small" />
+            <Text style={styles.emptyText}>Monitoring live audio stream... Chunks will appear here.</Text>
+          </GlassCard>
+        ) : (
+          chunkTimeline.map((item) => (
+            <GlassCard key={item.chunkId} style={styles.timelineItem}>
+              <View style={styles.timelineLeft}>
+                <Text style={styles.timelineChunkNum}>Chunk #{item.chunkId}</Text>
+                <Text style={styles.timelineTime}>{item.timeLabel}</Text>
+              </View>
+
+              <View
+                style={[
+                  styles.timelineBadge,
+                  {
+                    backgroundColor:
+                      item.riskLevel === 'scam'
+                        ? C.dangerDim
+                        : item.riskLevel === 'suspicious'
+                        ? C.warningDim
+                        : C.successDim,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.timelineBadgeText,
+                    {
+                      color:
+                        item.riskLevel === 'scam'
+                          ? C.danger
+                          : item.riskLevel === 'suspicious'
+                          ? C.warning
+                          : C.success,
+                    },
+                  ]}
+                >
+                  {item.predictedLabel.toUpperCase()} ({item.confidencePercent}%)
+                </Text>
+              </View>
+            </GlassCard>
+          ))
+        )}
+
+        {/* End Call Action */}
+        <TouchableOpacity
+          style={styles.endCallButton}
+          onPress={() => {
+            handleStopMonitoring();
+          }}
+        >
+          <Text style={styles.endCallButtonText}>⛔ End Call & View Final Security Report</Text>
+        </TouchableOpacity>
+      </ScrollView>
+
+      {/* Combined Final Security Report Modal */}
+      <LiveCallReportModal
+        visible={showReportModal}
+        reportData={finalReportData}
+        onClose={() => {
+          setShowReportModal(false);
+          onEndCall();
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -230,49 +302,47 @@ const styles = StyleSheet.create({
     backgroundColor: C.bg,
   },
   content: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 32,
-    paddingBottom: 24,
-    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 36,
   },
   callerHeader: {
     alignItems: 'center',
     marginBottom: 16,
   },
   callerAvatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   callerAvatarText: {
-    fontSize: 32,
+    fontSize: 28,
   },
   callerName: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '800',
     color: C.text,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   callerSub: {
     fontSize: 13,
     color: C.textMuted,
   },
   statusCard: {
-    padding: 24,
+    padding: 20,
     alignItems: 'center',
-    marginVertical: 12,
+    marginBottom: 16,
   },
   statusTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '800',
     color: C.text,
-    marginTop: 16,
-    marginBottom: 6,
+    marginTop: 12,
+    marginBottom: 4,
     textAlign: 'center',
   },
   statusSub: {
@@ -280,88 +350,109 @@ const styles = StyleSheet.create({
     color: C.textSec,
     textAlign: 'center',
     lineHeight: 18,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   riskBadge: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
     borderWidth: 1,
   },
   riskBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  actionUploadCard: {
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  actionUploadText: {
-    flex: 1,
-    marginRight: 10,
-  },
-  actionUploadTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: C.text,
-  },
-  actionUploadSub: {
     fontSize: 11,
-    color: C.textMuted,
-  },
-  uploadBtn: {
-    paddingHorizontal: 12,
-    height: 36,
-    backgroundColor: C.accent,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  uploadBtnDisabled: {
-    opacity: 0.7,
-  },
-  uploadBtnText: {
-    color: C.bgDeep,
-    fontSize: 12,
     fontWeight: '800',
   },
   controlsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    gap: 16,
+    gap: 12,
+    marginBottom: 20,
   },
   controlBtn: {
     flex: 1,
-    height: 60,
-    backgroundColor: C.card,
-    borderRadius: 18,
+    height: 52,
+    borderRadius: 16,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+  },
+  startBtn: {
+    backgroundColor: C.success,
+  },
+  stopBtn: {
+    backgroundColor: C.warning,
+  },
+  uploadBtn: {
+    backgroundColor: C.card,
     borderWidth: 1,
     borderColor: C.cardBorder,
   },
-  controlBtnActive: {
-    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-    borderColor: C.danger,
-  },
-  hangupBtn: {
-    backgroundColor: C.danger,
-    borderColor: C.danger,
-  },
   controlIcon: {
-    fontSize: 20,
-    marginBottom: 2,
+    fontSize: 16,
   },
-  controlLabel: {
-    fontSize: 12,
+  controlLabelText: {
+    color: C.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  sectionTitle: {
+    fontSize: 16,
     fontWeight: '700',
     color: C.text,
+    marginBottom: 12,
   },
-  hangupText: {
+  emptyCard: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 16,
+  },
+  emptyText: {
+    fontSize: 12,
+    color: C.textMuted,
+    textAlign: 'center',
+  },
+  timelineItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+    marginBottom: 10,
+  },
+  timelineLeft: {
+    flex: 1,
+  },
+  timelineChunkNum: {
+    fontSize: 14,
+    fontWeight: '700',
     color: C.text,
+    marginBottom: 2,
+  },
+  timelineTime: {
+    fontSize: 11,
+    color: C.textMuted,
+  },
+  timelineBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+  },
+  timelineBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  endCallButton: {
+    height: 52,
+    backgroundColor: C.danger,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+  },
+  endCallButtonText: {
+    color: C.text,
+    fontSize: 14,
     fontWeight: '800',
   },
 });
