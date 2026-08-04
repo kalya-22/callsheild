@@ -45,6 +45,12 @@ class LiveChunkResponse(BaseModel):
     final_call_verdict: str
 
 
+class ChunkJsonPayload(BaseModel):
+    filename: str = "live_chunk.wav"
+    audio_base64: str | None = None
+
+
+
 class PredictionHistoryItem(BaseModel):
     prediction_id: int
     filename: str

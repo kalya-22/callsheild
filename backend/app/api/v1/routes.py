@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 import base64
 import tempfile
 from pathlib import Path
@@ -14,6 +14,7 @@ from app.schemas.prediction import (
     SignupRequest,
     DeleteResponse,
     LiveChunkResponse,
+    ChunkJsonPayload,
     PredictionHistoryDetail,
     PredictionHistoryItem,
     PredictionResponse,
@@ -76,13 +77,33 @@ async def predict_audio(file: UploadFile = File(...)) -> dict[str, object]:
 
 
 @router.post("/predict-chunk", response_model=LiveChunkResponse)
-async def predict_audio_chunk(file: UploadFile = File(...)) -> dict[str, object]:
+async def predict_audio_chunk(
+    file: UploadFile | None = File(None),
+    payload: ChunkJsonPayload | None = Body(None),
+) -> dict[str, object]:
     try:
-        return await predict_uploaded_chunk(file)
+        if file is not None:
+            return await predict_uploaded_chunk(file)
+        elif payload is not None and payload.audio_base64:
+            raw_bytes = base64.b64decode(payload.audio_base64)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+                temp_path = Path(temp_file.name)
+                temp_file.write(raw_bytes)
+            try:
+                return await run_in_threadpool(
+                    predict_live_audio_chunk,
+                    temp_path,
+                    payload.filename or "live_chunk.wav",
+                )
+            finally:
+                temp_path.unlink(missing_ok=True)
+        else:
+            raise HTTPException(status_code=400, detail="Either file upload or audio_base64 payload is required")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Chunk prediction failed") from exc
+
 
 
 @router.get("/history", response_model=list[PredictionHistoryItem])
