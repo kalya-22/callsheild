@@ -1,12 +1,23 @@
 package com.callshield.app
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
+import android.content.Context
+import android.content.Intent
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Build
+import android.os.IBinder
 import android.util.Base64
+import androidx.core.app.NotificationCompat
+import java.io.OutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlin.concurrent.thread
 
-class CallAudioStreamerService {
+class CallAudioStreamerService : Service() {
 
     private var isRecording = false
     private var audioRecord: AudioRecord? = null
@@ -15,13 +26,40 @@ class CallAudioStreamerService {
     private val sampleRate = 16000
     private val channelConfig = AudioFormat.CHANNEL_IN_MONO
     private val audioFormat = AudioFormat.ENCODING_PCM_16BIT
-    
-    // 3 seconds of 16kHz 16-bit PCM audio = 16000 * 2 bytes * 3 = 96000 bytes
-    private val chunkSize = 96000
+    private val chunkSize = 96000 // 3 seconds of 16kHz PCM audio
 
-    fun startStreaming(onChunkReady: (String) -> Unit) {
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startForegroundNotification()
+        startStreaming()
+        return START_STICKY
+    }
+
+    private fun startForegroundNotification() {
+        val channelId = "callshield_live_channel"
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId,
+                "CallShield Live Protection",
+                NotificationManager.IMPORTANCE_HIGH
+            )
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("🛡️ CallShield Protection Active")
+            .setContentText("Analyzing live call audio in real time...")
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+
+        startForeground(101, notification)
+    }
+
+    private fun startStreaming() {
         if (isRecording) return
-
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
         val bufferSize = Math.max(minBufferSize, chunkSize)
 
@@ -35,7 +73,6 @@ class CallAudioStreamerService {
             )
 
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                // Fallback to MIC if VOICE_COMMUNICATION is restricted by OS
                 audioRecord = AudioRecord(
                     MediaRecorder.AudioSource.MIC,
                     sampleRate,
@@ -50,21 +87,49 @@ class CallAudioStreamerService {
 
             recordingThread = thread(start = true) {
                 val buffer = ByteArray(chunkSize)
+                var chunkId = 0
                 while (isRecording) {
                     val readBytes = audioRecord?.read(buffer, 0, chunkSize) ?: 0
                     if (readBytes > 0) {
+                        chunkId++
                         val base64Data = Base64.encodeToString(buffer, 0, readBytes, Base64.NO_WRAP)
-                        onChunkReady(base64Data)
+                        sendChunkToBackend(base64Data, chunkId)
                     }
                 }
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            stopStreaming()
+            stopSelf()
         }
     }
 
-    fun stopStreaming() {
+    private fun sendChunkToBackend(base64Data: String, chunkId: Int) {
+        thread {
+            try {
+                val url = URL("http://10.172.92.231:8000/api/v1/predict-chunk")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.doOutput = true
+                conn.connectTimeout = 3000
+                conn.readTimeout = 3000
+
+                val jsonPayload = "{\"filename\":\"live_call_chunk_$chunkId.wav\",\"audio_base64\":\"$base64Data\"}"
+                val os: OutputStream = conn.outputStream
+                os.write(jsonPayload.toByteArray(Charsets.UTF_8))
+                os.flush()
+                os.close()
+
+                val responseCode = conn.responseCode
+                android.util.Log.d("CallShieldStreamer", "Chunk #$chunkId posted to backend. Response: $responseCode")
+                conn.disconnect()
+            } catch (e: Exception) {
+                android.util.Log.w("CallShieldStreamer", "Failed to post chunk #$chunkId to backend: ${e.message}")
+            }
+        }
+    }
+
+    override fun onDestroy() {
         isRecording = false
         try {
             audioRecord?.stop()
@@ -74,5 +139,6 @@ class CallAudioStreamerService {
         }
         audioRecord = null
         recordingThread = null
+        super.onDestroy()
     }
 }
