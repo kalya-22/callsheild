@@ -24,6 +24,11 @@
         "FOREGROUND_SERVICE_MICROPHONE",
         "INTERNET"
       ]
+    },
+    "extra": {
+      "eas": {
+        "projectId": "a9a2325e-e7c8-4ef8-95a9-ebde6d66eb96"
+      }
     }
   }
 }
