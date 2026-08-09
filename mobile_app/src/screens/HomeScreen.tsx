@@ -17,6 +17,8 @@ import { GlassCard } from '../components/GlassCard';
 import { ShieldLogo } from '../components/ShieldLogo';
 import { CallShieldApi } from '../../services/CallShieldApi';
 import { callInterceptorService } from '../services/CallInterceptorService';
+import { CallPermissionHandler } from '../services/CallPermissionHandler';
+
 
 interface RecentCall {
   id: string;
@@ -73,10 +75,12 @@ export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploa
 
   useEffect(() => {
     if (nativeInterceptorActive) {
-      callInterceptorService.startListening(() => {
-        if (onTriggerAlert) {
-          onTriggerAlert();
-        }
+      CallPermissionHandler.requestAllCallPermissions().then(() => {
+        callInterceptorService.startListening(() => {
+          if (onTriggerAlert) {
+            onTriggerAlert();
+          }
+        });
       });
     } else {
       callInterceptorService.stopListening();
