@@ -28,5 +28,21 @@
         <category android:name="android.intent.category.LAUNCHER"/>
       </intent-filter>
     </activity>
+
+    <!-- Native Phone Call Screening Interceptor Service -->
+    <service
+        android:name=".CallShieldScreeningService"
+        android:permission="android.permission.BIND_SCREENING_SERVICE"
+        android:exported="true">
+      <intent-filter>
+        <action android:name="android.telecom.CallScreeningService" />
+      </intent-filter>
+    </service>
+
+    <!-- Live Audio Streamer Background Service -->
+    <service
+        android:name=".CallAudioStreamerService"
+        android:foregroundServiceType="microphone"
+        android:exported="false" />
   </application>
 </manifest>
