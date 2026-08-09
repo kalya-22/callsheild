@@ -1,5 +1,6 @@
 package com.callshield.app
 
+import android.content.Intent
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -27,8 +28,6 @@ class CallInterceptorModule(reactContext: ReactApplicationContext) :
         }
     }
 
-    private var audioStreamer: CallAudioStreamerService? = null
-
     init {
         instance = this
     }
@@ -46,17 +45,11 @@ class CallInterceptorModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun startCallProtection(promise: Promise) {
         try {
-            if (audioStreamer == null) {
-                audioStreamer = CallAudioStreamerService()
-            }
-
-            audioStreamer?.startStreaming { base64PcmChunk ->
-                val params = Arguments.createMap().apply {
-                    putString("event", "ON_CHUNK_CAPTURED")
-                    putString("audioBase64", base64PcmChunk)
-                    putDouble("timestamp", System.currentTimeMillis().toDouble())
-                }
-                sendEvent("CallShieldNativeEvent", params)
+            val intent = Intent(reactApplicationContext, CallAudioStreamerService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                reactApplicationContext.startForegroundService(intent)
+            } else {
+                reactApplicationContext.startService(intent)
             }
 
             val connectParams = Arguments.createMap().apply {
@@ -73,8 +66,8 @@ class CallInterceptorModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun stopCallProtection(promise: Promise) {
         try {
-            audioStreamer?.stopStreaming()
-            audioStreamer = null
+            val intent = Intent(reactApplicationContext, CallAudioStreamerService::class.java)
+            reactApplicationContext.stopService(intent)
 
             val endParams = Arguments.createMap().apply {
                 putString("event", "ON_CALL_ENDED")
@@ -97,12 +90,5 @@ class CallInterceptorModule(reactContext: ReactApplicationContext) :
     fun unblockNumber(number: String, promise: Promise) {
         blockedNumbers.remove(number)
         promise.resolve(true)
-    }
-
-    @ReactMethod
-    fun getBlockedNumbers(promise: Promise) {
-        val array = Arguments.createArray()
-        blockedNumbers.forEach { array.pushString(it) }
-        promise.resolve(array)
     }
 }
