@@ -21,6 +21,8 @@ import {
   FinalCallReportData,
 } from '../services/CallLiveStreamEngine';
 import { CallShieldApi } from '../../services/CallShieldApi';
+import { callInterceptorService } from '../services/CallInterceptorService';
+
 
 interface LiveCallScreenProps {
   onEndCall: () => void;
@@ -40,6 +42,27 @@ export function LiveCallScreen({ onEndCall }: LiveCallScreenProps) {
     const timer = setInterval(() => {
       setSeconds((prev) => prev + 1);
     }, 1000);
+
+    // Subscribe to native call interceptor stream
+    callInterceptorService.setOnChunkListener((result, callerNumber) => {
+      const prob = result.ai_probability ?? 0.85;
+      const conf = Math.round(prob * 100);
+      const risk: 'safe' | 'suspicious' | 'scam' = prob >= 0.75 ? 'scam' : prob >= 0.4 ? 'suspicious' : 'safe';
+
+      const newChunkItem: ChunkAnalysisItem = {
+        chunkId: Date.now(),
+        timeLabel: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        predictedLabel: prob >= 0.5 ? 'ai_generated' : 'human',
+        riskLevel: risk,
+        confidencePercent: conf,
+        aiProbability: prob,
+      };
+
+      setChunkTimeline((prev) => [newChunkItem, ...prev]);
+      setCurrentConfidence(conf);
+      setStatusBadge(risk);
+      setIsMonitoring(true);
+    });
 
     // Auto-start live call monitoring on mount
     handleStartProtection();

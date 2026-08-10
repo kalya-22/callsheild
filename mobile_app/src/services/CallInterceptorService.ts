@@ -21,6 +21,12 @@ class CallInterceptorService {
   private lastPredictionScore = 0;
 
   private onThreatCallback: ((riskData: any) => void) | null = null;
+  private onChunkCallback: ((chunkData: any, callerNumber: string) => void) | null = null;
+
+  public setOnChunkListener(callback: (chunkData: any, callerNumber: string) => void) {
+    this.onChunkCallback = callback;
+  }
+
 
   constructor() {
     if (Platform.OS === 'android' && CallInterceptorModule) {
@@ -125,6 +131,10 @@ class CallInterceptorService {
   private handlePredictionResult = (result: any) => {
     const aiProbability = result.ai_probability ?? 0.85;
     this.lastPredictionScore = Math.round(aiProbability * 100);
+
+    if (this.onChunkCallback) {
+      this.onChunkCallback(result, this.currentCallerNumber);
+    }
 
     if (aiProbability >= 0.75) {
       this.consecutiveAiChunks += 1;
