@@ -106,7 +106,7 @@ class CallAudioStreamerService : Service() {
     private fun sendChunkToBackend(base64Data: String, chunkId: Int) {
         thread {
             try {
-                val url = URL("http://10.172.92.231:8000/api/v1/predict-chunk")
+                val url = URL("http://10.194.245.231:8000/api/v1/predict-chunk")
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "POST"
                 conn.setRequestProperty("Content-Type", "application/json")
