@@ -18,6 +18,7 @@ import { BlockedContactsScreen } from '../screens/BlockedContactsScreen';
 import { EmergencyScreen } from '../screens/EmergencyScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { AuthStorage } from '../services/AuthStorage';
+import { callInterceptorService } from '../services/CallInterceptorService';
 import { C } from '../theme/colors';
 
 export type ScreenState =
@@ -46,6 +47,12 @@ export function AppNavigator() {
   const [isCheckingSession, setIsCheckingSession] = useState(true);
 
   useEffect(() => {
+    // Listen for interactive notification "ANALYZE CALL" tap button
+    callInterceptorService.setOnAnalyzeClickedListener((callerNumber) => {
+      console.log('[AppNavigator] Analyze call notification clicked for:', callerNumber);
+      setCurrentScreen('live_call');
+    });
+
     async function restoreUserSession() {
       try {
         const session = await AuthStorage.getSession();

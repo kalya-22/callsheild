@@ -7,7 +7,7 @@ import { CallNotificationService } from './CallNotificationService';
 const { CallInterceptorModule } = NativeModules;
 
 export interface NativeCallEvent {
-  event: 'ON_CALL_RINGING' | 'ON_CALL_CONNECTED' | 'ON_CHUNK_CAPTURED' | 'ON_CALL_ENDED';
+  event: 'ON_CALL_RINGING' | 'ON_CALL_CONNECTED' | 'ON_CHUNK_CAPTURED' | 'ON_CALL_ENDED' | 'ON_ANALYZE_CALL_CLICKED';
   phoneNumber?: string;
   audioBase64?: string;
   timestamp?: number;
@@ -22,9 +22,14 @@ class CallInterceptorService {
 
   private onThreatCallback: ((riskData: any) => void) | null = null;
   private onChunkCallback: ((chunkData: any, callerNumber: string) => void) | null = null;
+  private onAnalyzeClickedCallback: ((callerNumber: string) => void) | null = null;
 
   public setOnChunkListener(callback: (chunkData: any, callerNumber: string) => void) {
     this.onChunkCallback = callback;
+  }
+
+  public setOnAnalyzeClickedListener(callback: (callerNumber: string) => void) {
+    this.onAnalyzeClickedCallback = callback;
   }
 
 
@@ -76,6 +81,13 @@ class CallInterceptorService {
 
   private handleNativeEvent = async (event: NativeCallEvent) => {
     switch (event.event) {
+      case 'ON_ANALYZE_CALL_CLICKED':
+        this.currentCallerNumber = event.phoneNumber || '+91 98765 43210';
+        if (this.onAnalyzeClickedCallback) {
+          this.onAnalyzeClickedCallback(this.currentCallerNumber);
+        }
+        break;
+
       case 'ON_CALL_RINGING':
         this.currentCallerNumber = event.phoneNumber || '+91 98765 43210';
         console.log(`[CallShield Interceptor] Ringing call from: ${this.currentCallerNumber}`);

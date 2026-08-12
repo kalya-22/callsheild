@@ -31,6 +31,14 @@ class CallInterceptorModule(reactContext: ReactApplicationContext) :
             instance?.sendEvent("CallShieldNativeEvent", params)
         }
 
+        fun emitAnalyzeCallClicked(phoneNumber: String) {
+            val params = Arguments.createMap().apply {
+                putString("phoneNumber", phoneNumber)
+                putString("event", "ON_ANALYZE_CALL_CLICKED")
+            }
+            instance?.sendEvent("CallShieldNativeEvent", params)
+        }
+
         fun isNumberBlocked(phoneNumber: String): Boolean {
             return blockedNumbers.contains(phoneNumber)
         }

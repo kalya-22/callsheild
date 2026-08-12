@@ -49,11 +49,26 @@ class CallAudioStreamerService : Service() {
             notificationManager.createNotificationChannel(channel)
         }
 
+        val openAppIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("action", "ANALYZE_CALL")
+            putExtra("phoneNumber", phoneNumber)
+        }
+        val pendingIntent = android.app.PendingIntent.getActivity(
+            this,
+            0,
+            openAppIntent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+
         val notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("🛡️ CallShield Protection Active")
-            .setContentText("Analyzing live audio from $phoneNumber...")
+            .setContentTitle("🛡️ Incoming Call: $phoneNumber")
+            .setContentText("Analyze caller audio with CallShield AI?")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setContentIntent(pendingIntent)
+            .addAction(android.R.drawable.ic_menu_call, "ANALYZE CALL (YES)", pendingIntent)
+            .setAutoCancel(true)
             .build()
 
         startForeground(101, notification)
