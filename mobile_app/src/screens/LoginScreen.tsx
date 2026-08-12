@@ -15,6 +15,7 @@ import Svg, { Path, Circle, Rect } from 'react-native-svg';
 import { C } from '../theme/colors';
 import { ShieldLogo } from '../components/ShieldLogo';
 import { GlassCard } from '../components/GlassCard';
+import { AuthStorage } from '../services/AuthStorage';
 
 interface LoginScreenProps {
   onLoginSuccess: (userName?: string) => void;
@@ -33,18 +34,20 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setError('');
     setLoading(true);
 
-    setTimeout(() => {
+    setTimeout(async () => {
       setLoading(false);
       const userDisplayName = tab === 'signup'
         ? (name.trim() || 'Alex Johnson')
         : (email.split('@')[0] || 'Alex Johnson');
       
       const formattedName = userDisplayName.charAt(0).toUpperCase() + userDisplayName.slice(1);
+      await AuthStorage.saveSession(formattedName, email);
       onLoginSuccess(formattedName);
     }, 600);
   }
 
-  function handleGoogleSignIn() {
+  async function handleGoogleSignIn() {
+    await AuthStorage.saveSession('Alex Johnson', 'alex@gmail.com');
     onLoginSuccess('Alex Johnson');
   }
 

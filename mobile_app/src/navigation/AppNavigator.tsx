@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView } from 'react-native';
 import { SplashScreen } from '../screens/SplashScreen';
 import { OnboardingScreen } from '../screens/OnboardingScreen';
@@ -17,6 +17,7 @@ import { ScamReportScreen } from '../screens/ScamReportScreen';
 import { BlockedContactsScreen } from '../screens/BlockedContactsScreen';
 import { EmergencyScreen } from '../screens/EmergencyScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { AuthStorage } from '../services/AuthStorage';
 import { C } from '../theme/colors';
 
 export type ScreenState =
@@ -42,6 +43,26 @@ export function AppNavigator() {
   const [currentScreen, setCurrentScreen] = useState<ScreenState>('splash');
   const [selectedReportItem, setSelectedReportItem] = useState<any>(null);
   const [userName, setUserName] = useState<string>('Alex Johnson');
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+
+  useEffect(() => {
+    async function restoreUserSession() {
+      try {
+        const session = await AuthStorage.getSession();
+        if (session && session.isLoggedIn) {
+          if (session.name) {
+            setUserName(session.name);
+          }
+          setCurrentScreen('home');
+        }
+      } catch (err) {
+        console.warn('[AppNavigator] Error restoring session:', err);
+      } finally {
+        setIsCheckingSession(false);
+      }
+    }
+    restoreUserSession();
+  }, []);
 
   // Splash Screen
   if (currentScreen === 'splash') {
@@ -152,7 +173,10 @@ export function AppNavigator() {
 
         {currentScreen === 'profile' && (
           <ProfileScreen
-            onLogout={() => setCurrentScreen('login')}
+            onLogout={async () => {
+              await AuthStorage.clearSession();
+              setCurrentScreen('login');
+            }}
             onNavigateSettings={() => setCurrentScreen('settings')}
             onNavigateBlocked={() => setCurrentScreen('blocked')}
             onNavigateReport={() => setCurrentScreen('scam_report')}
