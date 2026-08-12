@@ -14,6 +14,7 @@ class CallInterceptorModule(reactContext: ReactApplicationContext) :
     companion object {
         private var instance: CallInterceptorModule? = null
         private val blockedNumbers = mutableSetOf<String>()
+        private var pendingAnalyzeNumber: String? = null
 
         fun emitCallRinging(phoneNumber: String) {
             val params = Arguments.createMap().apply {
@@ -31,10 +32,35 @@ class CallInterceptorModule(reactContext: ReactApplicationContext) :
             instance?.sendEvent("CallShieldNativeEvent", params)
         }
 
-        fun emitAnalyzeCallClicked(phoneNumber: String) {
+        fun emitCallConnected(phoneNumber: String) {
+            val params = Arguments.createMap().apply {
+                putString("phoneNumber", phoneNumber)
+                putString("event", "ON_CALL_CONNECTED")
+            }
+            instance?.sendEvent("CallShieldNativeEvent", params)
+        }
+
+        fun handleAnalyzeCallClicked(phoneNumber: String) {
+            pendingAnalyzeNumber = phoneNumber
+            emitAnalyzeCallClicked(phoneNumber)
+        }
+
+        private fun emitAnalyzeCallClicked(phoneNumber: String) {
             val params = Arguments.createMap().apply {
                 putString("phoneNumber", phoneNumber)
                 putString("event", "ON_ANALYZE_CALL_CLICKED")
+            }
+            instance?.sendEvent("CallShieldNativeEvent", params)
+        }
+
+        fun emitChunkPrediction(phoneNumber: String, chunkId: Int, aiProbability: Double, predictedLabel: String, riskLevel: String) {
+            val params = Arguments.createMap().apply {
+                putString("phoneNumber", phoneNumber)
+                putString("event", "ON_CHUNK_CAPTURED")
+                putInt("chunkId", chunkId)
+                putDouble("aiProbability", aiProbability)
+                putString("predictedLabel", predictedLabel)
+                putString("riskLevel", riskLevel)
             }
             instance?.sendEvent("CallShieldNativeEvent", params)
         }
@@ -77,6 +103,22 @@ class CallInterceptorModule(reactContext: ReactApplicationContext) :
         } catch (e: Exception) {
             promise.reject("START_ERROR", e.message)
         }
+    }
+
+    @ReactMethod
+    fun getPendingAnalyzeCall(promise: Promise) {
+        val number = pendingAnalyzeNumber
+        if (number == null) {
+            promise.resolve(null)
+            return
+        }
+
+        pendingAnalyzeNumber = null
+        val params = Arguments.createMap().apply {
+            putString("phoneNumber", number)
+            putString("event", "ON_ANALYZE_CALL_CLICKED")
+        }
+        promise.resolve(params)
     }
 
     @ReactMethod

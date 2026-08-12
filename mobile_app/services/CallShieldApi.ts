@@ -23,7 +23,7 @@ function getDynamicHostIp(): string {
     // Fallback if URL parsing fails
   }
 
-  return '10.194.245.231';
+  return '10.251.165.231';
 }
 
 export class CallShieldApi {

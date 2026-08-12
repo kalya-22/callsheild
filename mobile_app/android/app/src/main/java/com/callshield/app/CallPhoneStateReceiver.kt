@@ -14,16 +14,12 @@ class CallPhoneStateReceiver : BroadcastReceiver() {
             Log.d("CallShieldReceiver", "Phone State Changed: $state, Number: $incomingNumber")
 
             when (state) {
-                TelephonyManager.EXTRA_STATE_RINGING, TelephonyManager.EXTRA_STATE_OFFHOOK -> {
+                TelephonyManager.EXTRA_STATE_RINGING -> {
                     CallInterceptorModule.emitCallRinging(incomingNumber)
-                    val serviceIntent = Intent(context, CallAudioStreamerService::class.java).apply {
-                        putExtra("phoneNumber", incomingNumber)
-                    }
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                        context.startForegroundService(serviceIntent)
-                    } else {
-                        context.startService(serviceIntent)
-                    }
+                    CallAnalysisConsentNotifier.showAnalyzePrompt(context, incomingNumber)
+                }
+                TelephonyManager.EXTRA_STATE_OFFHOOK -> {
+                    CallInterceptorModule.emitCallConnected(incomingNumber)
                 }
                 TelephonyManager.EXTRA_STATE_IDLE -> {
                     CallInterceptorModule.emitCallEnded(incomingNumber)

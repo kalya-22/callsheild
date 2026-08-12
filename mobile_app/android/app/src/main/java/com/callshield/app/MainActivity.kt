@@ -28,7 +28,15 @@ class MainActivity : ReactActivity() {
     val action = intent?.getStringExtra("action")
     val phoneNumber = intent?.getStringExtra("phoneNumber") ?: "Unknown Caller"
     if (action == "ANALYZE_CALL") {
-      CallInterceptorModule.emitAnalyzeCallClicked(phoneNumber)
+      val serviceIntent = Intent(this, CallAudioStreamerService::class.java).apply {
+        putExtra("phoneNumber", phoneNumber)
+      }
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        startForegroundService(serviceIntent)
+      } else {
+        startService(serviceIntent)
+      }
+      CallInterceptorModule.handleAnalyzeCallClicked(phoneNumber)
     }
   }
 

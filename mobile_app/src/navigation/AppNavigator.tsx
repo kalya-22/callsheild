@@ -44,12 +44,14 @@ export function AppNavigator() {
   const [currentScreen, setCurrentScreen] = useState<ScreenState>('splash');
   const [selectedReportItem, setSelectedReportItem] = useState<any>(null);
   const [userName, setUserName] = useState<string>('Alex Johnson');
+  const [activeCallerNumber, setActiveCallerNumber] = useState<string>('Unknown Caller');
   const [isCheckingSession, setIsCheckingSession] = useState(true);
 
   useEffect(() => {
     // Listen for interactive notification "ANALYZE CALL" tap button
     callInterceptorService.setOnAnalyzeClickedListener((callerNumber) => {
       console.log('[AppNavigator] Analyze call notification clicked for:', callerNumber);
+      setActiveCallerNumber(callerNumber || 'Unknown Caller');
       setCurrentScreen('live_call');
     });
 
@@ -100,7 +102,7 @@ export function AppNavigator() {
 
   // Live Call Screen
   if (currentScreen === 'live_call') {
-    return <LiveCallScreen onEndCall={() => setCurrentScreen('live_analysis')} />;
+    return <LiveCallScreen callerNumber={activeCallerNumber} onEndCall={() => setCurrentScreen('live_analysis')} />;
   }
 
   // Alert Screen

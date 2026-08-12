@@ -10,6 +10,10 @@ export interface NativeCallEvent {
   event: 'ON_CALL_RINGING' | 'ON_CALL_CONNECTED' | 'ON_CHUNK_CAPTURED' | 'ON_CALL_ENDED' | 'ON_ANALYZE_CALL_CLICKED';
   phoneNumber?: string;
   audioBase64?: string;
+  chunkId?: number;
+  aiProbability?: number;
+  predictedLabel?: 'ai_generated' | 'human';
+  riskLevel?: 'low' | 'medium' | 'high';
   timestamp?: number;
 }
 
@@ -23,6 +27,7 @@ class CallInterceptorService {
   private onThreatCallback: ((riskData: any) => void) | null = null;
   private onChunkCallback: ((chunkData: any, callerNumber: string) => void) | null = null;
   private onAnalyzeClickedCallback: ((callerNumber: string) => void) | null = null;
+  private onCallEndedCallback: ((callerNumber: string) => void) | null = null;
 
   public setOnChunkListener(callback: (chunkData: any, callerNumber: string) => void) {
     this.onChunkCallback = callback;
@@ -30,8 +35,33 @@ class CallInterceptorService {
 
   public setOnAnalyzeClickedListener(callback: (callerNumber: string) => void) {
     this.onAnalyzeClickedCallback = callback;
+    this.ensureNativeEventSubscription();
+    void this.consumePendingAnalyzeCall();
   }
 
+  public setOnCallEndedListener(callback: (callerNumber: string) => void) {
+    this.onCallEndedCallback = callback;
+    this.ensureNativeEventSubscription();
+  }
+
+  private ensureNativeEventSubscription() {
+    if (this.eventEmitter) {
+      this.eventEmitter.removeAllListeners('CallShieldNativeEvent');
+      this.eventEmitter.addListener('CallShieldNativeEvent', this.handleNativeEvent);
+    }
+  }
+
+  private async consumePendingAnalyzeCall() {
+    if (Platform.OS !== 'android' || !CallInterceptorModule?.getPendingAnalyzeCall) return;
+    try {
+      const pending = await CallInterceptorModule.getPendingAnalyzeCall();
+      if (pending) {
+        await this.handleNativeEvent(pending);
+      }
+    } catch (err) {
+      console.warn('[CallShield Interceptor] Could not read pending analyze call:', err);
+    }
+  }
 
   constructor() {
     if (Platform.OS === 'android' && CallInterceptorModule) {
@@ -61,9 +91,7 @@ class CallInterceptorService {
       CallInterceptorModule.startCallProtection();
     }
 
-    if (this.eventEmitter) {
-      this.eventEmitter.addListener('CallShieldNativeEvent', this.handleNativeEvent);
-    }
+    this.ensureNativeEventSubscription();
   }
 
   public stopListening() {
@@ -71,9 +99,7 @@ class CallInterceptorService {
     this.consecutiveAiChunks = 0;
     callWebSocketService.disconnect();
 
-    if (this.eventEmitter) {
-      this.eventEmitter.removeAllListeners('CallShieldNativeEvent');
-    }
+    this.ensureNativeEventSubscription();
     if (Platform.OS === 'android' && CallInterceptorModule) {
       CallInterceptorModule.stopCallProtection();
     }
@@ -101,14 +127,30 @@ class CallInterceptorService {
         break;
 
       case 'ON_CHUNK_CAPTURED':
-        if (event.audioBase64) {
+        if (event.aiProbability !== undefined) {
+          this.handlePredictionResult({
+            chunk_id: event.chunkId,
+            ai_probability: event.aiProbability,
+            predicted_label: event.predictedLabel || 'human',
+            risk_level: event.riskLevel || 'low',
+          });
+        } else if (event.audioBase64) {
           await this.processAudioChunk(event.audioBase64);
         }
         break;
 
       case 'ON_CALL_ENDED':
         console.log('[CallShield Interceptor] Call ended. Generating final analysis report...');
+        if (!this.isListening) {
+          if (this.onCallEndedCallback) {
+            this.onCallEndedCallback(event.phoneNumber || this.currentCallerNumber);
+          }
+          return;
+        }
         await this.generateCallEndReport();
+        if (this.onCallEndedCallback) {
+          this.onCallEndedCallback(event.phoneNumber || this.currentCallerNumber);
+        }
         this.stopListening();
         break;
     }

@@ -25,10 +25,11 @@ import { callInterceptorService } from '../services/CallInterceptorService';
 
 
 interface LiveCallScreenProps {
+  callerNumber?: string;
   onEndCall: () => void;
 }
 
-export function LiveCallScreen({ onEndCall }: LiveCallScreenProps) {
+export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: LiveCallScreenProps) {
   const [seconds, setSeconds] = useState(0);
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [statusBadge, setStatusBadge] = useState<'safe' | 'suspicious' | 'scam'>('safe');
@@ -37,6 +38,7 @@ export function LiveCallScreen({ onEndCall }: LiveCallScreenProps) {
   const [finalReportData, setFinalReportData] = useState<FinalCallReportData | null>(null);
   const [showReportModal, setShowReportModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const isNativeCallSession = callerNumber !== 'Unknown Caller';
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -64,8 +66,20 @@ export function LiveCallScreen({ onEndCall }: LiveCallScreenProps) {
       setIsMonitoring(true);
     });
 
-    // Auto-start live call monitoring on mount
-    handleStartProtection();
+    callInterceptorService.setOnCallEndedListener(() => {
+      if (!isNativeCallSession) return;
+      const report = generateNativeFinalReport();
+      setIsMonitoring(false);
+      setFinalReportData(report);
+      setShowReportModal(true);
+    });
+
+    if (isNativeCallSession) {
+      setIsMonitoring(true);
+    } else {
+      // Auto-start simulated/manual live monitoring only when the user opens Live Call from the app.
+      handleStartProtection();
+    }
 
     return () => {
       clearInterval(timer);
@@ -89,10 +103,37 @@ export function LiveCallScreen({ onEndCall }: LiveCallScreenProps) {
   }
 
   function handleStopMonitoring() {
-    const report = callLiveStreamEngine.stopLiveProtection();
+    const report = isNativeCallSession
+      ? generateNativeFinalReport()
+      : callLiveStreamEngine.stopLiveProtection();
+    if (isNativeCallSession) {
+      callInterceptorService.stopListening();
+    }
     setIsMonitoring(false);
     setFinalReportData(report);
     setShowReportModal(true);
+  }
+
+  function generateNativeFinalReport(): FinalCallReportData {
+    const total = chunkTimeline.length;
+    const durationSeconds = Math.max(1, seconds);
+    const averageRisk = total
+      ? Math.round(chunkTimeline.reduce((sum, chunk) => sum + chunk.confidencePercent, 0) / total)
+      : 0;
+    const aiChunks = chunkTimeline.filter((chunk) => chunk.predictedLabel === 'ai_generated').length;
+    const m = Math.floor(durationSeconds / 60).toString().padStart(2, '0');
+    const s = (durationSeconds % 60).toString().padStart(2, '0');
+
+    return {
+      overallPrediction: aiChunks >= Math.ceil(total / 2) && total > 0 ? 'ai_generated' : 'human',
+      overallRiskScore: averageRisk,
+      confidencePercent: averageRisk,
+      totalChunksAnalyzed: total,
+      callDurationSeconds: durationSeconds,
+      callDurationFormatted: `${m}:${s}`,
+      detectionTimeline: [...chunkTimeline],
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
   }
 
   async function handlePickAudioFile() {
@@ -154,9 +195,18 @@ export function LiveCallScreen({ onEndCall }: LiveCallScreenProps) {
           <View style={styles.callerAvatar}>
             <Text style={styles.callerAvatarText}>📞</Text>
           </View>
-          <Text style={styles.callerName}>+91 98765 43210</Text>
+          <Text style={styles.callerName}>{callerNumber}</Text>
           <Text style={styles.callerSub}>Active Ongoing Call · {formatTimer(seconds)}</Text>
         </View>
+
+        {isNativeCallSession && (
+          <GlassCard style={styles.speakerHintCard}>
+            <Text style={styles.speakerHintTitle}>Turn on speaker mode</Text>
+            <Text style={styles.speakerHintText}>
+              Android blocks direct internal call audio capture. CallShield analyzes microphone audio, so speaker mode helps the mic hear the caller voice.
+            </Text>
+          </GlassCard>
+        )}
 
         {/* Live Protection Status Card */}
         <GlassCard bright style={styles.statusCard}>
@@ -354,6 +404,22 @@ const styles = StyleSheet.create({
   callerSub: {
     fontSize: 13,
     color: C.textMuted,
+  },
+  speakerHintCard: {
+    padding: 14,
+    marginBottom: 16,
+    borderColor: C.warning,
+  },
+  speakerHintTitle: {
+    color: C.warning,
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  speakerHintText: {
+    color: C.textSec,
+    fontSize: 12,
+    lineHeight: 18,
   },
   statusCard: {
     padding: 20,

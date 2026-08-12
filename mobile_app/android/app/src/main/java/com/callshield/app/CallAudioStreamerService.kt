@@ -10,29 +10,30 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.IBinder
-import android.util.Base64
 import androidx.core.app.NotificationCompat
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
 
 class CallAudioStreamerService : Service() {
-
     private var isRecording = false
     private var audioRecord: AudioRecord? = null
     private var recordingThread: Thread? = null
+    private var phoneNumber: String = "Unknown Caller"
 
     private val sampleRate = 16000
     private val channelConfig = AudioFormat.CHANNEL_IN_MONO
     private val audioFormat = AudioFormat.ENCODING_PCM_16BIT
-    private val chunkSize = 96000 // 3 seconds of 16kHz PCM audio
+    private val chunkSize = 96000
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val number = intent?.getStringExtra("phoneNumber") ?: "Unknown Caller"
-        startForegroundNotification(number)
+        phoneNumber = intent?.getStringExtra("phoneNumber") ?: "Unknown Caller"
+        startForegroundNotification(phoneNumber)
         startStreaming()
         return START_STICKY
     }
@@ -62,13 +63,12 @@ class CallAudioStreamerService : Service() {
         )
 
         val notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("🛡️ Incoming Call: $phoneNumber")
-            .setContentText("Analyze caller audio with CallShield AI?")
+            .setContentTitle("CallShield live monitoring")
+            .setContentText("Analyzing microphone audio for $phoneNumber")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setContentIntent(pendingIntent)
-            .addAction(android.R.drawable.ic_menu_call, "ANALYZE CALL (YES)", pendingIntent)
-            .setAutoCancel(true)
+            .setOngoing(true)
             .build()
 
         startForeground(101, notification)
@@ -77,12 +77,11 @@ class CallAudioStreamerService : Service() {
     private fun startStreaming() {
         if (isRecording) return
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
-        val bufferSize = Math.max(minBufferSize, chunkSize)
+        val bufferSize = maxOf(minBufferSize, chunkSize)
 
         val sources = intArrayOf(
             MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            MediaRecorder.AudioSource.CAMCORDER,
             MediaRecorder.AudioSource.MIC,
             MediaRecorder.AudioSource.DEFAULT
         )
@@ -92,7 +91,7 @@ class CallAudioStreamerService : Service() {
                 val recorder = AudioRecord(source, sampleRate, channelConfig, audioFormat, bufferSize)
                 if (recorder.state == AudioRecord.STATE_INITIALIZED) {
                     audioRecord = recorder
-                    android.util.Log.d("CallShieldStreamer", "Successfully initialized AudioRecord with source: $source")
+                    android.util.Log.d("CallShieldStreamer", "AudioRecord initialized with source: $source")
                     break
                 }
             } catch (e: Exception) {
@@ -109,49 +108,100 @@ class CallAudioStreamerService : Service() {
         try {
             audioRecord?.startRecording()
             isRecording = true
-
             recordingThread = thread(start = true) {
                 val buffer = ByteArray(chunkSize)
                 var chunkId = 0
                 while (isRecording) {
                     val readBytes = audioRecord?.read(buffer, 0, chunkSize) ?: 0
                     if (readBytes > 0) {
-                        chunkId++
-                        val base64Data = Base64.encodeToString(buffer, 0, readBytes, Base64.NO_WRAP)
-                        sendChunkToBackend(base64Data, chunkId)
+                        chunkId += 1
+                        sendChunkToBackend(buffer.copyOf(readBytes), chunkId)
                     }
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("CallShieldStreamer", "Recording failed: ${e.message}")
             stopSelf()
         }
     }
 
-    private fun sendChunkToBackend(base64Data: String, chunkId: Int) {
+    private fun sendChunkToBackend(pcmData: ByteArray, chunkId: Int) {
         thread {
             try {
-                val url = URL("http://10.194.245.231:8000/api/v1/predict-chunk")
+                val url = URL("http://10.251.165.231:8000/api/v1/predict-chunk")
                 val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "POST"
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.doOutput = true
-                conn.connectTimeout = 3000
-                conn.readTimeout = 3000
+                val boundary = "CallShieldBoundary${System.currentTimeMillis()}"
+                val wavData = buildWav(pcmData)
+                val fileName = "live_call_$chunkId.wav"
 
-                val jsonPayload = "{\"filename\":\"live_call_chunk_$chunkId.wav\",\"audio_base64\":\"$base64Data\"}"
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+                conn.setRequestProperty("Accept", "application/json")
+                conn.doOutput = true
+                conn.connectTimeout = 10000
+                conn.readTimeout = 15000
+
                 val os: OutputStream = conn.outputStream
-                os.write(jsonPayload.toByteArray(Charsets.UTF_8))
+                os.write("--$boundary\r\n".toByteArray())
+                os.write("Content-Disposition: form-data; name=\"file\"; filename=\"$fileName\"\r\n".toByteArray())
+                os.write("Content-Type: audio/wav\r\n\r\n".toByteArray())
+                os.write(wavData)
+                os.write("\r\n--$boundary--\r\n".toByteArray())
                 os.flush()
                 os.close()
 
                 val responseCode = conn.responseCode
-                android.util.Log.d("CallShieldStreamer", "Chunk #$chunkId posted to backend. Response: $responseCode")
+                android.util.Log.d("CallShieldStreamer", "Chunk #$chunkId response: $responseCode")
+                if (responseCode in 200..299) {
+                    val responseText = conn.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(responseText)
+                    CallInterceptorModule.emitChunkPrediction(
+                        phoneNumber,
+                        chunkId,
+                        json.optDouble("ai_probability", 0.0),
+                        json.optString("predicted_label", "human"),
+                        json.optString("risk_level", "low")
+                    )
+                }
                 conn.disconnect()
             } catch (e: Exception) {
-                android.util.Log.w("CallShieldStreamer", "Failed to post chunk #$chunkId to backend: ${e.message}")
+                android.util.Log.w("CallShieldStreamer", "Failed to post chunk #$chunkId: ${e.message}")
             }
         }
+    }
+
+    private fun buildWav(pcmData: ByteArray): ByteArray {
+        val output = ByteArrayOutputStream()
+        val totalDataLen = pcmData.size + 36
+        val byteRate = sampleRate * 2
+
+        fun writeString(value: String) = output.write(value.toByteArray(Charsets.US_ASCII))
+        fun writeIntLE(value: Int) {
+            output.write(value and 0xff)
+            output.write((value shr 8) and 0xff)
+            output.write((value shr 16) and 0xff)
+            output.write((value shr 24) and 0xff)
+        }
+        fun writeShortLE(value: Int) {
+            output.write(value and 0xff)
+            output.write((value shr 8) and 0xff)
+        }
+
+        writeString("RIFF")
+        writeIntLE(totalDataLen)
+        writeString("WAVE")
+        writeString("fmt ")
+        writeIntLE(16)
+        writeShortLE(1)
+        writeShortLE(1)
+        writeIntLE(sampleRate)
+        writeIntLE(byteRate)
+        writeShortLE(2)
+        writeShortLE(16)
+        writeString("data")
+        writeIntLE(pcmData.size)
+        output.write(pcmData)
+        return output.toByteArray()
     }
 
     override fun onDestroy() {
@@ -160,7 +210,7 @@ class CallAudioStreamerService : Service() {
             audioRecord?.stop()
             audioRecord?.release()
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.w("CallShieldStreamer", "AudioRecord cleanup failed: ${e.message}")
         }
         audioRecord = null
         recordingThread = null
