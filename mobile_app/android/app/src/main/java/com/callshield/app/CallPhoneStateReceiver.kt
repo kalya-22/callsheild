@@ -15,6 +15,7 @@ class CallPhoneStateReceiver : BroadcastReceiver() {
 
             when (state) {
                 TelephonyManager.EXTRA_STATE_RINGING, TelephonyManager.EXTRA_STATE_OFFHOOK -> {
+                    CallInterceptorModule.emitCallRinging(incomingNumber)
                     val serviceIntent = Intent(context, CallAudioStreamerService::class.java).apply {
                         putExtra("phoneNumber", incomingNumber)
                     }
@@ -25,6 +26,7 @@ class CallPhoneStateReceiver : BroadcastReceiver() {
                     }
                 }
                 TelephonyManager.EXTRA_STATE_IDLE -> {
+                    CallInterceptorModule.emitCallEnded(incomingNumber)
                     val serviceIntent = Intent(context, CallAudioStreamerService::class.java)
                     context.stopService(serviceIntent)
                 }

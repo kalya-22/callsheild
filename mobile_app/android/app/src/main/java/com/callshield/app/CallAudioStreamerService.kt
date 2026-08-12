@@ -31,12 +31,13 @@ class CallAudioStreamerService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundNotification()
+        val number = intent?.getStringExtra("phoneNumber") ?: "Unknown Caller"
+        startForegroundNotification(number)
         startStreaming()
         return START_STICKY
     }
 
-    private fun startForegroundNotification() {
+    private fun startForegroundNotification(phoneNumber: String) {
         val channelId = "callshield_live_channel"
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -50,7 +51,7 @@ class CallAudioStreamerService : Service() {
 
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("🛡️ CallShield Protection Active")
-            .setContentText("Analyzing live call audio in real time...")
+            .setContentText("Analyzing live audio from $phoneNumber...")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
@@ -63,25 +64,34 @@ class CallAudioStreamerService : Service() {
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
         val bufferSize = Math.max(minBufferSize, chunkSize)
 
-        try {
-            audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-                sampleRate,
-                channelConfig,
-                audioFormat,
-                bufferSize
-            )
+        val sources = intArrayOf(
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.CAMCORDER,
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.DEFAULT
+        )
 
-            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                audioRecord = AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
-                    sampleRate,
-                    channelConfig,
-                    audioFormat,
-                    bufferSize
-                )
+        for (source in sources) {
+            try {
+                val recorder = AudioRecord(source, sampleRate, channelConfig, audioFormat, bufferSize)
+                if (recorder.state == AudioRecord.STATE_INITIALIZED) {
+                    audioRecord = recorder
+                    android.util.Log.d("CallShieldStreamer", "Successfully initialized AudioRecord with source: $source")
+                    break
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("CallShieldStreamer", "Failed to init source $source: ${e.message}")
             }
+        }
 
+        if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+            android.util.Log.e("CallShieldStreamer", "Could not initialize any AudioRecord source.")
+            stopSelf()
+            return
+        }
+
+        try {
             audioRecord?.startRecording()
             isRecording = true
 
