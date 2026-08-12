@@ -45,6 +45,45 @@ export class CallShieldApi {
     }
   }
 
+  public static async signup(fullName: string, email: string, password: string): Promise<any> {
+    const response = await fetch(`${CallShieldApi.baseUrl}/auth/signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ full_name: fullName, email, password }),
+    });
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Sign up failed');
+    }
+    return await response.json();
+  }
+
+  public static async login(email: string, password: string): Promise<any> {
+    const response = await fetch(`${CallShieldApi.baseUrl}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Invalid email or password');
+    }
+    return await response.json();
+  }
+
+  public static async googleLogin(idToken?: string): Promise<any> {
+    const response = await fetch(`${CallShieldApi.baseUrl}/auth/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_token: idToken || 'mock_google_id_token' }),
+    });
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Google sign in failed');
+    }
+    return await response.json();
+  }
+
   public static async predictAudioFile(
     fileUri: string,
     fileName: string,
