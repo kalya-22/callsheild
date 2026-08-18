@@ -26,7 +26,7 @@ class MainActivity : ReactActivity() {
 
   private fun checkAnalyzeIntent(intent: Intent?) {
     val action = intent?.getStringExtra("action")
-    val phoneNumber = intent?.getStringExtra("phoneNumber") ?: "Unknown Caller"
+    val phoneNumber = CallInterceptorModule.resolveCallNumber(intent?.getStringExtra("phoneNumber"))
     if (action == "ANALYZE_CALL") {
       val serviceIntent = Intent(this, CallAudioStreamerService::class.java).apply {
         putExtra("phoneNumber", phoneNumber)

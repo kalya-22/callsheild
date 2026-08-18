@@ -62,7 +62,7 @@ export function AppNavigator() {
           if (session.name) {
             setUserName(session.name);
           }
-          setCurrentScreen('home');
+          setCurrentScreen((screen) => (screen === 'live_call' ? 'live_call' : 'home'));
         }
       } catch (err) {
         console.warn('[AppNavigator] Error restoring session:', err);

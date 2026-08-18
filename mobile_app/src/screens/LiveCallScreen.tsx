@@ -38,6 +38,7 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
   const [finalReportData, setFinalReportData] = useState<FinalCallReportData | null>(null);
   const [showReportModal, setShowReportModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [audioNotice, setAudioNotice] = useState<string | null>(null);
   const isNativeCallSession = callerNumber !== 'Unknown Caller';
 
   useEffect(() => {
@@ -49,12 +50,21 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
     callInterceptorService.setOnChunkListener((result, callerNumber) => {
       const prob = result.ai_probability ?? 0.85;
       const conf = Math.round(prob * 100);
-      const risk: 'safe' | 'suspicious' | 'scam' = prob >= 0.75 ? 'scam' : prob >= 0.4 ? 'suspicious' : 'safe';
+      const isInsufficientAudio =
+        result.predicted_label === 'insufficient_audio' ||
+        result.raw_predicted_label === 'too_quiet' ||
+        (typeof result.audio_rms === 'number' && result.audio_rms < 0.0002);
+      const predictedLabel = isInsufficientAudio
+        ? 'insufficient_audio'
+        : result.predicted_label === 'ai_generated' ? 'ai_generated' : 'human';
+      const risk: 'safe' | 'suspicious' | 'scam' = isInsufficientAudio
+        ? 'suspicious'
+        : prob >= 0.75 ? 'scam' : prob >= 0.4 ? 'suspicious' : 'safe';
 
       const newChunkItem: ChunkAnalysisItem = {
         chunkId: Date.now(),
         timeLabel: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        predictedLabel: prob >= 0.5 ? 'ai_generated' : 'human',
+        predictedLabel,
         riskLevel: risk,
         confidencePercent: conf,
         aiProbability: prob,
@@ -63,6 +73,11 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
       setChunkTimeline((prev) => [newChunkItem, ...prev]);
       setCurrentConfidence(conf);
       setStatusBadge(risk);
+      setAudioNotice(
+        isInsufficientAudio
+          ? 'CallShield is receiving very low speaker audio. Increase call volume, keep speaker on, and keep the phone microphone near the speaker.'
+          : null
+      );
       setIsMonitoring(true);
     });
 
@@ -76,6 +91,7 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
 
     if (isNativeCallSession) {
       setIsMonitoring(true);
+      callInterceptorService.beginAnalyzingExistingCall(callerNumber);
     } else {
       // Auto-start simulated/manual live monitoring only when the user opens Live Call from the app.
       handleStartProtection();
@@ -120,12 +136,15 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
     const averageRisk = total
       ? Math.round(chunkTimeline.reduce((sum, chunk) => sum + chunk.confidencePercent, 0) / total)
       : 0;
-    const aiChunks = chunkTimeline.filter((chunk) => chunk.predictedLabel === 'ai_generated').length;
+    const analyzedChunks = chunkTimeline.filter((chunk) => chunk.predictedLabel !== 'insufficient_audio');
+    const aiChunks = analyzedChunks.filter((chunk) => chunk.predictedLabel === 'ai_generated').length;
     const m = Math.floor(durationSeconds / 60).toString().padStart(2, '0');
     const s = (durationSeconds % 60).toString().padStart(2, '0');
 
     return {
-      overallPrediction: aiChunks >= Math.ceil(total / 2) && total > 0 ? 'ai_generated' : 'human',
+      overallPrediction: analyzedChunks.length === 0
+        ? 'insufficient_audio'
+        : aiChunks >= Math.ceil(analyzedChunks.length / 2) ? 'ai_generated' : 'human',
       overallRiskScore: averageRisk,
       confidencePercent: averageRisk,
       totalChunksAnalyzed: total,
@@ -205,6 +224,13 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
             <Text style={styles.speakerHintText}>
               Android blocks direct internal call audio capture. CallShield analyzes microphone audio, so speaker mode helps the mic hear the caller voice.
             </Text>
+          </GlassCard>
+        )}
+
+        {audioNotice && (
+          <GlassCard style={styles.audioNoticeCard}>
+            <Text style={styles.audioNoticeTitle}>Audio level is too low</Text>
+            <Text style={styles.audioNoticeText}>{audioNotice}</Text>
           </GlassCard>
         )}
 
@@ -417,6 +443,23 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   speakerHintText: {
+    color: C.textSec,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  audioNoticeCard: {
+    padding: 14,
+    marginBottom: 16,
+    borderColor: C.warning,
+    backgroundColor: C.warningDim,
+  },
+  audioNoticeTitle: {
+    color: C.warning,
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  audioNoticeText: {
     color: C.textSec,
     fontSize: 12,
     lineHeight: 18,

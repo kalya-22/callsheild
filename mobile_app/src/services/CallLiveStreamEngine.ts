@@ -6,14 +6,14 @@ import { CallNotificationService } from './CallNotificationService';
 export interface ChunkAnalysisItem {
   chunkId: number;
   timeLabel: string;
-  predictedLabel: 'ai_generated' | 'human';
+  predictedLabel: 'ai_generated' | 'human' | 'insufficient_audio';
   aiProbability: number;
   confidencePercent: number;
   riskLevel: 'safe' | 'suspicious' | 'scam';
 }
 
 export interface FinalCallReportData {
-  overallPrediction: 'ai_generated' | 'human';
+  overallPrediction: 'ai_generated' | 'human' | 'insufficient_audio';
   overallRiskScore: number;
   confidencePercent: number;
   totalChunksAnalyzed: number;

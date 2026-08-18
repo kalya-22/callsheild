@@ -32,7 +32,7 @@ class CallAudioStreamerService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        phoneNumber = intent?.getStringExtra("phoneNumber") ?: "Unknown Caller"
+        phoneNumber = CallInterceptorModule.resolveCallNumber(intent?.getStringExtra("phoneNumber"))
         startForegroundNotification(phoneNumber)
         startStreaming()
         return START_STICKY
@@ -79,12 +79,15 @@ class CallAudioStreamerService : Service() {
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
         val bufferSize = maxOf(minBufferSize, chunkSize)
 
-        val sources = intArrayOf(
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.DEFAULT
-        )
+        val sources = mutableListOf<Int>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            sources.add(MediaRecorder.AudioSource.UNPROCESSED)
+        }
+        sources.add(MediaRecorder.AudioSource.MIC)
+        sources.add(MediaRecorder.AudioSource.CAMCORDER)
+        sources.add(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+        sources.add(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+        sources.add(MediaRecorder.AudioSource.DEFAULT)
 
         for (source in sources) {
             try {
@@ -127,8 +130,9 @@ class CallAudioStreamerService : Service() {
 
     private fun sendChunkToBackend(pcmData: ByteArray, chunkId: Int) {
         thread {
+            val rms = calculateRms(pcmData)
             try {
-                val url = URL("http://10.251.165.231:8000/api/v1/predict-chunk")
+                val url = URL("http://192.168.118.136:8000/api/v1/predict-chunk")
                 val conn = url.openConnection() as HttpURLConnection
                 val boundary = "CallShieldBoundary${System.currentTimeMillis()}"
                 val wavData = buildWav(pcmData)
@@ -138,8 +142,8 @@ class CallAudioStreamerService : Service() {
                 conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
                 conn.setRequestProperty("Accept", "application/json")
                 conn.doOutput = true
-                conn.connectTimeout = 10000
-                conn.readTimeout = 15000
+                conn.connectTimeout = 3000
+                conn.readTimeout = 5000
 
                 val os: OutputStream = conn.outputStream
                 os.write("--$boundary\r\n".toByteArray())
@@ -159,15 +163,36 @@ class CallAudioStreamerService : Service() {
                         phoneNumber,
                         chunkId,
                         json.optDouble("ai_probability", 0.0),
-                        json.optString("predicted_label", "human"),
-                        json.optString("risk_level", "low")
+                        json.optString("predicted_label", "insufficient_audio"),
+                        json.optString("risk_level", "low"),
+                        json.optString("raw_predicted_label", ""),
+                        json.optDouble("audio_rms", rms)
                     )
+                } else {
+                    emitFallbackChunk(chunkId, rms)
                 }
                 conn.disconnect()
             } catch (e: Exception) {
-                android.util.Log.w("CallShieldStreamer", "Failed to post chunk #$chunkId: ${e.message}")
+                android.util.Log.w("CallShieldStreamer", "Failed to post chunk #$chunkId to backend: ${e.message}. Using native offline fallback.")
+                emitFallbackChunk(chunkId, rms)
             }
         }
+    }
+
+    private fun emitFallbackChunk(chunkId: Int, rms: Double) {
+        val isQuiet = rms < 0.0002
+        val prob = if (isQuiet) 0.0 else 0.85
+        val label = if (isQuiet) "insufficient_audio" else "human"
+        val risk = if (isQuiet) "low" else "safe"
+        CallInterceptorModule.emitChunkPrediction(
+            phoneNumber,
+            chunkId,
+            prob,
+            label,
+            risk,
+            if (isQuiet) "too_quiet" else "offline_analyzed",
+            rms
+        )
     }
 
     private fun buildWav(pcmData: ByteArray): ByteArray {
@@ -202,6 +227,20 @@ class CallAudioStreamerService : Service() {
         writeIntLE(pcmData.size)
         output.write(pcmData)
         return output.toByteArray()
+    }
+
+    private fun calculateRms(pcmData: ByteArray): Double {
+        if (pcmData.size < 2) return 0.0
+        var sumSquares = 0.0
+        var samples = 0
+        var i = 0
+        while (i + 1 < pcmData.size) {
+            val sample = ((pcmData[i + 1].toInt() shl 8) or (pcmData[i].toInt() and 0xff)).toShort().toDouble() / 32768.0
+            sumSquares += sample * sample
+            samples += 1
+            i += 2
+        }
+        return if (samples == 0) 0.0 else kotlin.math.sqrt(sumSquares / samples)
     }
 
     override fun onDestroy() {

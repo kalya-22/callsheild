@@ -35,6 +35,7 @@ class PredictionResponse(BaseModel):
 class LiveChunkResponse(BaseModel):
     chunk_id: str
     predicted_label: str
+    raw_predicted_label: str | None = None
     ai_probability: float
     ai_confidence_percent: float
     risk_level: str
@@ -43,6 +44,7 @@ class LiveChunkResponse(BaseModel):
     current_chunk_risk: float
     current_chunk_risk_percent: float
     final_call_verdict: str
+    audio_rms: float | None = None
 
 
 class ChunkJsonPayload(BaseModel):

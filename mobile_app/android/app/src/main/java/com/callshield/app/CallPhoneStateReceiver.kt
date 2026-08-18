@@ -10,7 +10,9 @@ class CallPhoneStateReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == TelephonyManager.ACTION_PHONE_STATE_CHANGED) {
             val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE)
-            val incomingNumber = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER) ?: "Unknown Caller"
+            val incomingNumber = CallInterceptorModule.resolveCallNumber(
+                intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
+            )
             Log.d("CallShieldReceiver", "Phone State Changed: $state, Number: $incomingNumber")
 
             when (state) {

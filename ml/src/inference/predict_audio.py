@@ -30,7 +30,7 @@ class PredictionConfig:
     warning_threshold: float = 0.55
     live_ai_chunk_threshold: float = 0.75
     live_warning_threshold: float = 0.7
-    min_live_rms: float = 0.004
+    min_live_rms: float = 0.0002
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -276,7 +276,7 @@ def predict_live_audio_chunk(
     if len(audio) < min_samples or rms < config.min_live_rms:
         return {
             "chunk_id": chunk_id,
-            "predicted_label": "human",
+            "predicted_label": "insufficient_audio",
             "raw_predicted_label": "too_quiet",
             "ai_probability": 0.0,
             "ai_confidence_percent": 0.0,
@@ -285,7 +285,7 @@ def predict_live_audio_chunk(
             "chunk_count": 1,
             "current_chunk_risk": 0.0,
             "current_chunk_risk_percent": 0.0,
-            "final_call_verdict": "human",
+            "final_call_verdict": "insufficient_audio",
             "audio_rms": round(rms, 6),
         }
 

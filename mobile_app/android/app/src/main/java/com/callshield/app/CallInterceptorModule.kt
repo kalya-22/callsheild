@@ -15,34 +15,57 @@ class CallInterceptorModule(reactContext: ReactApplicationContext) :
         private var instance: CallInterceptorModule? = null
         private val blockedNumbers = mutableSetOf<String>()
         private var pendingAnalyzeNumber: String? = null
+        private var lastKnownCallNumber: String? = null
+
+        fun rememberCallNumber(phoneNumber: String?) {
+            val normalized = phoneNumber?.trim().orEmpty()
+            if (normalized.isNotBlank() && normalized != "Unknown Caller") {
+                lastKnownCallNumber = normalized
+            }
+        }
+
+        fun resolveCallNumber(phoneNumber: String?): String {
+            val normalized = phoneNumber?.trim().orEmpty()
+            return when {
+                normalized.isNotBlank() && normalized != "Unknown Caller" -> normalized
+                !lastKnownCallNumber.isNullOrBlank() -> lastKnownCallNumber!!
+                else -> "Unknown Caller"
+            }
+        }
 
         fun emitCallRinging(phoneNumber: String) {
+            rememberCallNumber(phoneNumber)
             val params = Arguments.createMap().apply {
-                putString("phoneNumber", phoneNumber)
+                putString("phoneNumber", resolveCallNumber(phoneNumber))
                 putString("event", "ON_CALL_RINGING")
             }
             instance?.sendEvent("CallShieldNativeEvent", params)
         }
 
         fun emitCallEnded(phoneNumber: String) {
+            val resolvedNumber = resolveCallNumber(phoneNumber)
             val params = Arguments.createMap().apply {
-                putString("phoneNumber", phoneNumber)
+                putString("phoneNumber", resolvedNumber)
                 putString("event", "ON_CALL_ENDED")
             }
             instance?.sendEvent("CallShieldNativeEvent", params)
+            lastKnownCallNumber = null
         }
 
         fun emitCallConnected(phoneNumber: String) {
+            rememberCallNumber(phoneNumber)
             val params = Arguments.createMap().apply {
-                putString("phoneNumber", phoneNumber)
+                putString("phoneNumber", resolveCallNumber(phoneNumber))
                 putString("event", "ON_CALL_CONNECTED")
             }
             instance?.sendEvent("CallShieldNativeEvent", params)
         }
 
         fun handleAnalyzeCallClicked(phoneNumber: String) {
-            pendingAnalyzeNumber = phoneNumber
-            emitAnalyzeCallClicked(phoneNumber)
+            val resolvedNumber = resolveCallNumber(phoneNumber)
+            rememberCallNumber(resolvedNumber)
+            pendingAnalyzeNumber = resolvedNumber
+            emitAnalyzeCallClicked(resolvedNumber)
         }
 
         private fun emitAnalyzeCallClicked(phoneNumber: String) {
@@ -53,14 +76,25 @@ class CallInterceptorModule(reactContext: ReactApplicationContext) :
             instance?.sendEvent("CallShieldNativeEvent", params)
         }
 
-        fun emitChunkPrediction(phoneNumber: String, chunkId: Int, aiProbability: Double, predictedLabel: String, riskLevel: String) {
+        fun emitChunkPrediction(
+            phoneNumber: String,
+            chunkId: Int,
+            aiProbability: Double,
+            predictedLabel: String,
+            riskLevel: String,
+            rawPredictedLabel: String,
+            audioRms: Double
+        ) {
+            val resolvedNumber = resolveCallNumber(phoneNumber)
             val params = Arguments.createMap().apply {
-                putString("phoneNumber", phoneNumber)
+                putString("phoneNumber", resolvedNumber)
                 putString("event", "ON_CHUNK_CAPTURED")
                 putInt("chunkId", chunkId)
                 putDouble("aiProbability", aiProbability)
                 putString("predictedLabel", predictedLabel)
                 putString("riskLevel", riskLevel)
+                putString("rawPredictedLabel", rawPredictedLabel)
+                putDouble("audioRms", audioRms)
             }
             instance?.sendEvent("CallShieldNativeEvent", params)
         }

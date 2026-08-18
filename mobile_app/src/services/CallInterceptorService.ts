@@ -12,8 +12,10 @@ export interface NativeCallEvent {
   audioBase64?: string;
   chunkId?: number;
   aiProbability?: number;
-  predictedLabel?: 'ai_generated' | 'human';
+  predictedLabel?: 'ai_generated' | 'human' | 'insufficient_audio';
   riskLevel?: 'low' | 'medium' | 'high';
+  rawPredictedLabel?: string;
+  audioRms?: number;
   timestamp?: number;
 }
 
@@ -21,7 +23,7 @@ class CallInterceptorService {
   private eventEmitter: NativeEventEmitter | null = null;
   private isListening = false;
   private consecutiveAiChunks = 0;
-  private currentCallerNumber = '+91 98765 43210';
+  private currentCallerNumber = 'Unknown Caller';
   private lastPredictionScore = 0;
 
   private onThreatCallback: ((riskData: any) => void) | null = null;
@@ -42,6 +44,16 @@ class CallInterceptorService {
   public setOnCallEndedListener(callback: (callerNumber: string) => void) {
     this.onCallEndedCallback = callback;
     this.ensureNativeEventSubscription();
+  }
+
+  public beginAnalyzingExistingCall(callerNumber?: string) {
+    this.currentCallerNumber = this.resolveCallerNumber(callerNumber);
+    this.isListening = true;
+    this.consecutiveAiChunks = 0;
+    this.ensureNativeEventSubscription();
+    CallNotificationService.configure();
+    callWebSocketService.connect();
+    callWebSocketService.onPrediction(this.handlePredictionResult);
   }
 
   private ensureNativeEventSubscription() {
@@ -108,19 +120,20 @@ class CallInterceptorService {
   private handleNativeEvent = async (event: NativeCallEvent) => {
     switch (event.event) {
       case 'ON_ANALYZE_CALL_CLICKED':
-        this.currentCallerNumber = event.phoneNumber || '+91 98765 43210';
+        this.currentCallerNumber = this.resolveCallerNumber(event.phoneNumber);
         if (this.onAnalyzeClickedCallback) {
           this.onAnalyzeClickedCallback(this.currentCallerNumber);
         }
         break;
 
       case 'ON_CALL_RINGING':
-        this.currentCallerNumber = event.phoneNumber || '+91 98765 43210';
+        this.currentCallerNumber = this.resolveCallerNumber(event.phoneNumber);
         console.log(`[CallShield Interceptor] Ringing call from: ${this.currentCallerNumber}`);
         await CallPermissionHandler.ensurePhoneStatePermission();
         break;
 
       case 'ON_CALL_CONNECTED':
+        this.currentCallerNumber = this.resolveCallerNumber(event.phoneNumber);
         console.log('[CallShield Interceptor] Call connected. Checking mic permission...');
         await CallPermissionHandler.ensureMicrophonePermission();
         callWebSocketService.connect();
@@ -131,8 +144,10 @@ class CallInterceptorService {
           this.handlePredictionResult({
             chunk_id: event.chunkId,
             ai_probability: event.aiProbability,
-            predicted_label: event.predictedLabel || 'human',
+            predicted_label: event.predictedLabel || 'insufficient_audio',
             risk_level: event.riskLevel || 'low',
+            raw_predicted_label: event.rawPredictedLabel,
+            audio_rms: event.audioRms,
           });
         } else if (event.audioBase64) {
           await this.processAudioChunk(event.audioBase64);
@@ -222,6 +237,14 @@ class CallInterceptorService {
       }
     }
   };
+
+  private resolveCallerNumber(phoneNumber?: string) {
+    const normalized = (phoneNumber || '').trim();
+    if (normalized && normalized !== 'Unknown Caller') {
+      return normalized;
+    }
+    return this.currentCallerNumber || 'Unknown Caller';
+  }
 
   private async generateCallEndReport() {
     const isScam = this.lastPredictionScore >= 65;

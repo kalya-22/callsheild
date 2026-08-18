@@ -9,10 +9,12 @@ import androidx.annotation.RequiresApi
 class CallShieldScreeningService : CallScreeningService() {
 
     override fun onScreenCall(callDetails: Call.Details) {
-        val phoneNumber = callDetails.handle?.schemeSpecificPart ?: ""
+        val phoneNumber = CallInterceptorModule.resolveCallNumber(callDetails.handle?.schemeSpecificPart)
+        CallInterceptorModule.rememberCallNumber(phoneNumber)
         
         // Notify native module of incoming call screening event
         CallInterceptorModule.emitCallRinging(phoneNumber)
+        CallAnalysisConsentNotifier.showAnalyzePrompt(this, phoneNumber)
 
         val response = CallResponse.Builder()
         
