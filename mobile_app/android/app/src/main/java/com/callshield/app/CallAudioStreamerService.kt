@@ -132,7 +132,7 @@ class CallAudioStreamerService : Service() {
         thread {
             val rms = calculateRms(pcmData)
             try {
-                val url = URL("http://192.168.118.136:8000/api/v1/predict-chunk")
+                val url = URL("https://callshield-api.localtunnel.me/api/v1/predict-chunk")
                 val conn = url.openConnection() as HttpURLConnection
                 val boundary = "CallShieldBoundary${System.currentTimeMillis()}"
                 val wavData = buildWav(pcmData)

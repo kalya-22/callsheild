@@ -7,6 +7,8 @@ __pycache__/
 .venv/
 venv/
 env/
+.gradle-user-home/
+*.gradle-user-home
 
 # Data and model artifacts
 *.db

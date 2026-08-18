@@ -29,11 +29,7 @@ function getDynamicHostIp(): string {
 export class CallShieldApi {
   private static dynamicIp = getDynamicHostIp();
 
-  private static defaultBaseUrl = Platform.OS === 'android'
-    ? `http://${CallShieldApi.dynamicIp}:8000/api/v1`
-    : 'http://localhost:8000/api/v1';
-
-  public static baseUrl: string = CallShieldApi.defaultBaseUrl;
+  public static baseUrl: string = 'https://callshield-api.localtunnel.me/api/v1';
 
   public static async getStatus(): Promise<any> {
     try {
