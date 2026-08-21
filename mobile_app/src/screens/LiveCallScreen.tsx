@@ -53,7 +53,7 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
       const isInsufficientAudio =
         result.predicted_label === 'insufficient_audio' ||
         result.raw_predicted_label === 'too_quiet' ||
-        (typeof result.audio_rms === 'number' && result.audio_rms < 0.0002);
+        (typeof result.audio_rms === 'number' && result.audio_rms > 0 && result.audio_rms < 0.000001);
       const predictedLabel = isInsufficientAudio
         ? 'insufficient_audio'
         : result.predicted_label === 'ai_generated' ? 'ai_generated' : 'human';

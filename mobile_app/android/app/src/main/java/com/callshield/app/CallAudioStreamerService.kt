@@ -118,6 +118,7 @@ class CallAudioStreamerService : Service() {
                     val readBytes = audioRecord?.read(buffer, 0, chunkSize) ?: 0
                     if (readBytes > 0) {
                         chunkId += 1
+                        amplifyPcm(buffer, readBytes, 2.5f)
                         sendChunkToBackend(buffer.copyOf(readBytes), chunkId)
                     }
                 }
@@ -125,6 +126,20 @@ class CallAudioStreamerService : Service() {
         } catch (e: Exception) {
             android.util.Log.e("CallShieldStreamer", "Recording failed: ${e.message}")
             stopSelf()
+        }
+    }
+
+    private fun amplifyPcm(buffer: ByteArray, bytesRead: Int, multiplier: Float) {
+        var i = 0
+        while (i < bytesRead - 1) {
+            val sample = (buffer[i].toInt() and 0xFF) or (buffer[i + 1].toInt() shl 8)
+            var shortSample = sample.toShort().toInt()
+            shortSample = (shortSample * multiplier).toInt()
+            if (shortSample > 32767) shortSample = 32767
+            if (shortSample < -32768) shortSample = -32768
+            buffer[i] = (shortSample and 0xFF).toByte()
+            buffer[i + 1] = ((shortSample shr 8) and 0xFF).toByte()
+            i += 2
         }
     }
 
@@ -180,7 +195,7 @@ class CallAudioStreamerService : Service() {
     }
 
     private fun emitFallbackChunk(chunkId: Int, rms: Double) {
-        val isQuiet = rms < 0.0002
+        val isQuiet = rms < 0.000001
         val prob = if (isQuiet) 0.0 else 0.85
         val label = if (isQuiet) "insufficient_audio" else "human"
         val risk = if (isQuiet) "low" else "safe"
