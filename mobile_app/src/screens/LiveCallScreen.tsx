@@ -133,10 +133,13 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
   function generateNativeFinalReport(): FinalCallReportData {
     const total = chunkTimeline.length;
     const durationSeconds = Math.max(1, seconds);
-    const averageRisk = total
-      ? Math.round(chunkTimeline.reduce((sum, chunk) => sum + chunk.confidencePercent, 0) / total)
-      : 0;
     const analyzedChunks = chunkTimeline.filter((chunk) => chunk.predictedLabel !== 'insufficient_audio');
+    const validTotal = analyzedChunks.length;
+
+    const averageRisk = validTotal
+      ? Math.round(analyzedChunks.reduce((sum, chunk) => sum + chunk.confidencePercent, 0) / validTotal)
+      : (total > 0 ? 15 : 0);
+
     const aiChunks = analyzedChunks.filter((chunk) => chunk.predictedLabel === 'ai_generated').length;
     const m = Math.floor(durationSeconds / 60).toString().padStart(2, '0');
     const s = (durationSeconds % 60).toString().padStart(2, '0');
