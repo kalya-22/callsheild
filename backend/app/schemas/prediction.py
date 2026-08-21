@@ -50,7 +50,8 @@ class LiveChunkResponse(BaseModel):
 class ChunkJsonPayload(BaseModel):
     filename: str = "live_chunk.wav"
     audio_base64: str | None = None
-
+    encrypted_audio_base64: str | None = None
+    iv_base64: str | None = None
 
 
 class PredictionHistoryItem(BaseModel):
@@ -72,17 +73,8 @@ class BackendStatus(BaseModel):
     service: str
     status: str
     model_ready: bool
-    database_ready: bool
-    features_ready: bool
-    prediction_count: int
-    model_path: str
-    database_path: str
-
-
-class DeleteResponse(BaseModel):
-    message: str
-    deleted_count: int
-
+    registered_users: int = 0
+    active_threats_blocked: int = 0
 
 
 class SignupRequest(BaseModel):
@@ -101,12 +93,18 @@ class GoogleLoginRequest(BaseModel):
     client_id: str | None = None
 
 
-class AuthUser(BaseModel):
-    user_id: int
+class UserProfile(BaseModel):
+    id: int
     full_name: str
     email: str
 
 
 class AuthResponse(BaseModel):
-    token: str
-    user: AuthUser
+    message: str
+    access_token: str
+    user: UserProfile
+
+
+class DeleteResponse(BaseModel):
+    message: str
+    deleted_count: int

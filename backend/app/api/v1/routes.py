@@ -80,6 +80,8 @@ async def predict_audio(file: UploadFile = File(...)) -> dict[str, object]:
         raise HTTPException(status_code=500, detail="Prediction failed") from exc
 
 
+from app.services.encryption_service import decrypt_audio_chunk
+
 @router.post("/predict-chunk", response_model=LiveChunkResponse)
 async def predict_audio_chunk(
     file: UploadFile | None = File(None),
@@ -89,19 +91,26 @@ async def predict_audio_chunk(
         if file is not None and file.filename:
             return await predict_uploaded_chunk(file)
         
-        if payload is not None and payload.audio_base64:
-            raw_bytes = base64.b64decode(payload.audio_base64)
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
-                temp_path = Path(temp_file.name)
-                temp_file.write(raw_bytes)
-            try:
-                return await run_in_threadpool(
-                    predict_live_audio_chunk,
-                    temp_path,
-                    payload.filename or "live_chunk.wav",
-                )
-            finally:
-                temp_path.unlink(missing_ok=True)
+        if payload is not None:
+            raw_bytes: bytes | None = None
+            if payload.encrypted_audio_base64 and payload.iv_base64:
+                # Decrypt AES-256-GCM Zero-Knowledge Encrypted Payload in RAM
+                raw_bytes = decrypt_audio_chunk(payload.encrypted_audio_base64, payload.iv_base64)
+            elif payload.audio_base64:
+                raw_bytes = base64.b64decode(payload.audio_base64)
+
+            if raw_bytes:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+                    temp_path = Path(temp_file.name)
+                    temp_file.write(raw_bytes)
+                try:
+                    return await run_in_threadpool(
+                        predict_live_audio_chunk,
+                        temp_path,
+                        payload.filename or "live_chunk.wav",
+                    )
+                finally:
+                    temp_path.unlink(missing_ok=True)
 
         # Fallback default chunk response if audio payload is empty
         return {

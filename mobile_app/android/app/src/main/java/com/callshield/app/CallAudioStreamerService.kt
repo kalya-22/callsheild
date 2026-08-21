@@ -143,29 +143,58 @@ class CallAudioStreamerService : Service() {
         }
     }
 
+    private fun encryptAesGcm(plainData: ByteArray): Pair<String, String>? {
+        return try {
+            val keyBytes = "CallShieldAESSecretKey256Bit2026!".toByteArray(Charsets.UTF_8)
+            val secretKey = javax.crypto.spec.SecretKeySpec(keyBytes, 0, 32, "AES")
+            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            val iv = ByteArray(12)
+            java.security.SecureRandom().nextBytes(iv)
+            val parameterSpec = javax.crypto.spec.GCMParameterSpec(128, iv)
+            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, secretKey, parameterSpec)
+            val encryptedBytes = cipher.doFinal(plainData)
+            val encBase64 = Base64.encodeToString(encryptedBytes, Base64.NO_WRAP)
+            val ivBase64 = Base64.encodeToString(iv, Base64.NO_WRAP)
+            Pair(encBase64, ivBase64)
+        } catch (e: Exception) {
+            android.util.Log.e("CallShieldStreamer", "AES-256 Encryption failed: ${e.message}")
+            null
+        }
+    }
+
     private fun sendChunkToBackend(pcmData: ByteArray, chunkId: Int) {
         thread {
             val rms = calculateRms(pcmData)
             try {
                 val url = URL("https://callshield-api.localtunnel.me/api/v1/predict-chunk")
                 val conn = url.openConnection() as HttpURLConnection
-                val boundary = "CallShieldBoundary${System.currentTimeMillis()}"
                 val wavData = buildWav(pcmData)
                 val fileName = "live_call_$chunkId.wav"
 
+                val encPair = encryptAesGcm(wavData)
+                val jsonBody = if (encPair != null) {
+                    JSONObject().apply {
+                        put("filename", fileName)
+                        put("encrypted_audio_base64", encPair.first)
+                        put("iv_base64", encPair.second)
+                    }.toString()
+                } else {
+                    val rawBase64 = Base64.encodeToString(wavData, Base64.NO_WRAP)
+                    JSONObject().apply {
+                        put("filename", fileName)
+                        put("audio_base64", rawBase64)
+                    }.toString()
+                }
+
                 conn.requestMethod = "POST"
-                conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+                conn.setRequestProperty("Content-Type", "application/json")
                 conn.setRequestProperty("Accept", "application/json")
                 conn.doOutput = true
                 conn.connectTimeout = 3000
                 conn.readTimeout = 5000
 
                 val os: OutputStream = conn.outputStream
-                os.write("--$boundary\r\n".toByteArray())
-                os.write("Content-Disposition: form-data; name=\"file\"; filename=\"$fileName\"\r\n".toByteArray())
-                os.write("Content-Type: audio/wav\r\n\r\n".toByteArray())
-                os.write(wavData)
-                os.write("\r\n--$boundary--\r\n".toByteArray())
+                os.write(jsonBody.toByteArray(Charsets.UTF_8))
                 os.flush()
                 os.close()
 
