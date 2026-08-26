@@ -49,7 +49,7 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
 
     // Subscribe to native call interceptor stream
     callInterceptorService.setOnChunkListener((result, callerNumber) => {
-      const prob = result.ai_probability ?? 0.85;
+      const prob = result.ai_probability ?? 0.05;
       const conf = Math.round(prob * 100);
       const isInsufficientAudio =
         result.predicted_label === 'insufficient_audio' ||

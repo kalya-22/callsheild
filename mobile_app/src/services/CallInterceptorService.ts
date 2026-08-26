@@ -198,7 +198,7 @@ class CallInterceptorService {
   }
 
   private handlePredictionResult = (result: any) => {
-    const aiProbability = result.ai_probability ?? 0.85;
+    const aiProbability = result.ai_probability ?? 0.05;
     this.lastPredictionScore = Math.round(aiProbability * 100);
 
     if (this.onChunkCallback) {

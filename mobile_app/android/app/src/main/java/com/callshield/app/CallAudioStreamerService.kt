@@ -225,7 +225,7 @@ class CallAudioStreamerService : Service() {
 
     private fun emitFallbackChunk(chunkId: Int, rms: Double) {
         val isQuiet = rms < 0.000001
-        val prob = if (isQuiet) 0.0 else 0.85
+        val prob = if (isQuiet) 0.0 else 0.05
         val label = if (isQuiet) "insufficient_audio" else "human"
         val risk = if (isQuiet) "low" else "safe"
         CallInterceptorModule.emitChunkPrediction(

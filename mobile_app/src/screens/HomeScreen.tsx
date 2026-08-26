@@ -82,20 +82,9 @@ export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploa
 
   useEffect(() => {
     if (nativeInterceptorActive) {
-      CallPermissionHandler.requestAllCallPermissions().then(() => {
-        callInterceptorService.startListening(() => {
-          if (onTriggerAlert) {
-            onTriggerAlert();
-          }
-        });
-      });
-    } else {
-      callInterceptorService.stopListening();
+      CallPermissionHandler.requestAllCallPermissions();
     }
-    return () => {
-      callInterceptorService.stopListening();
-    };
-  }, [nativeInterceptorActive, onTriggerAlert]);
+  }, [nativeInterceptorActive]);
 
   async function handlePickAndUploadAudio() {
     try {
