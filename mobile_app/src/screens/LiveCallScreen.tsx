@@ -22,6 +22,7 @@ import {
 } from '../services/CallLiveStreamEngine';
 import { CallShieldApi } from '../../services/CallShieldApi';
 import { callInterceptorService } from '../services/CallInterceptorService';
+import { CallHistoryStorage } from '../services/CallHistoryStorage';
 
 
 interface LiveCallScreenProps {
@@ -87,6 +88,9 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
       setIsMonitoring(false);
       setFinalReportData(report);
       setShowReportModal(true);
+
+      // Save real call record to persistent history
+      saveReportToHistory(report, callerNumber);
     });
 
     if (isNativeCallSession) {
@@ -104,6 +108,31 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
       }
     };
   }, []);
+
+  async function saveReportToHistory(report: FinalCallReportData, phoneNum: string) {
+    try {
+      const risk: 'safe' | 'suspicious' | 'scam' =
+        report.overallPrediction === 'ai_generated'
+          ? 'scam'
+          : report.overallPrediction === 'insufficient_audio'
+          ? 'suspicious'
+          : 'safe';
+      const conf = Math.round(report.confidencePercent || report.overallRiskScore || 94);
+
+      await CallHistoryStorage.saveCallRecord({
+        id: Date.now().toString(),
+        name: phoneNum === 'Unknown Caller' ? 'Unknown Number' : phoneNum,
+        number: phoneNum,
+        time: 'Just now',
+        risk,
+        confidence: conf,
+        predicted_label: report.overallPrediction,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.warn('[LiveCallScreen] Error saving history:', err);
+    }
+  }
 
   async function handleStartProtection() {
     const success = await callLiveStreamEngine.startLiveProtection((chunk, currentList) => {
@@ -128,6 +157,9 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
     setIsMonitoring(false);
     setFinalReportData(report);
     setShowReportModal(true);
+
+    // Save real call record to persistent history
+    saveReportToHistory(report, callerNumber);
   }
 
   function generateNativeFinalReport(): FinalCallReportData {

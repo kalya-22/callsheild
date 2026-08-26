@@ -18,7 +18,7 @@ import { ShieldLogo } from '../components/ShieldLogo';
 import { CallShieldApi } from '../../services/CallShieldApi';
 import { callInterceptorService } from '../services/CallInterceptorService';
 import { CallPermissionHandler } from '../services/CallPermissionHandler';
-
+import { CallHistoryStorage, CallRecord } from '../services/CallHistoryStorage';
 
 interface RecentCall {
   id: string;
@@ -28,13 +28,6 @@ interface RecentCall {
   risk: 'safe' | 'suspicious' | 'scam';
   confidence: number;
 }
-
-const mockRecentCalls: RecentCall[] = [
-  { id: '1', name: 'HDFC Bank Support', number: '+91 22 6160 6161', time: '2m ago', risk: 'safe', confidence: 96 },
-  { id: '2', name: 'Unknown Number', number: '+91 98765 43210', time: '1h ago', risk: 'scam', confidence: 92 },
-  { id: '3', name: 'Mom', number: '+91 94440 12345', time: '3h ago', risk: 'safe', confidence: 99 },
-  { id: '4', name: 'Insurance Desk', number: '+91 80123 45678', time: '5h ago', risk: 'suspicious', confidence: 74 },
-];
 
 interface HomeScreenProps {
   userName?: string;
@@ -47,7 +40,7 @@ export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploa
   const [protectionActive, setProtectionActive] = useState(true);
   const [nativeInterceptorActive, setNativeInterceptorActive] = useState(true);
   const [backendOnline, setBackendOnline] = useState(true);
-  const [recentCalls, setRecentCalls] = useState<RecentCall[]>(mockRecentCalls);
+  const [recentCalls, setRecentCalls] = useState<RecentCall[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
 
@@ -58,6 +51,20 @@ export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploa
     if (hour < 17) return 'Good afternoon,';
     return 'Good evening,';
   };
+
+  useEffect(() => {
+    async function loadRealHistory() {
+      try {
+        const stored = await CallHistoryStorage.getCallHistory();
+        if (stored && stored.length > 0) {
+          setRecentCalls(stored);
+        }
+      } catch (err) {
+        console.warn('[HomeScreen] Error loading history:', err);
+      }
+    }
+    loadRealHistory();
+  }, []);
 
   useEffect(() => {
     async function checkHealth() {
@@ -122,13 +129,30 @@ export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploa
 
       setIsUploading(false);
 
+      const score = Math.round((result.ai_confidence_percent || result.ai_probability * 100) ?? 85);
+      const isScam = result.predicted_label === 'ai_generated';
+      const riskLevel: 'safe' | 'suspicious' | 'scam' = isScam ? 'scam' : 'safe';
+
+      const newRecord: CallRecord = {
+        id: Date.now().toString(),
+        name: asset.name || 'Uploaded Sample',
+        number: asset.name || 'Audio File',
+        time: 'Just now',
+        risk: riskLevel,
+        confidence: score,
+        predicted_label: result.predicted_label,
+        timestamp: new Date().toISOString(),
+      };
+
+      const updatedHistory = await CallHistoryStorage.saveCallRecord(newRecord);
+      setRecentCalls(updatedHistory);
+
       if (onUploadSuccess) {
         onUploadSuccess(result);
       } else {
-        const score = Math.round((result.ai_probability ?? 0.85) * 100);
         Alert.alert(
           'AI Detection Complete',
-          `File: ${asset.name}\nResult: ${result.predicted_label}\nAI Confidence: ${score}%`
+          `File: ${asset.name}\nResult: ${result.predicted_label === 'ai_generated' ? '🚨 AI Voice Clone / Scam' : '✅ Authentic Human Voice'}\nAI Confidence: ${score}%`
         );
       }
     } catch (err: any) {

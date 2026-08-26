@@ -12,6 +12,8 @@ import { C } from '../theme/colors';
 import { GlassCard } from '../components/GlassCard';
 import { CallShieldApi } from '../../services/CallShieldApi';
 
+import { CallHistoryStorage } from '../services/CallHistoryStorage';
+
 type FilterType = 'All' | 'Safe' | 'Suspicious' | 'Scam';
 
 interface HistoryItem {
@@ -21,35 +23,59 @@ interface HistoryItem {
   ai_probability: number;
   risk_level: string;
   created_at: string;
+  confidence_percent?: number;
 }
 
 interface HistoryScreenProps {
   onSelectReport: (item: HistoryItem) => void;
 }
 
-const mockHistory: HistoryItem[] = [
-  { prediction_id: 101, filename: 'sample_audio_vishing.wav', predicted_label: 'ai_generated', ai_probability: 0.89, risk_level: 'high', created_at: new Date().toISOString() },
-  { prediction_id: 102, filename: 'hdfc_support_call.wav', predicted_label: 'human', ai_probability: 0.04, risk_level: 'low', created_at: new Date(Date.now() - 3600000).toISOString() },
-  { prediction_id: 103, filename: 'insurance_inquiry.wav', predicted_label: 'ai_generated', ai_probability: 0.62, risk_level: 'medium', created_at: new Date(Date.now() - 7200000).toISOString() },
-  { prediction_id: 104, filename: 'mom_voice_note.wav', predicted_label: 'human', ai_probability: 0.01, risk_level: 'low', created_at: new Date(Date.now() - 14400000).toISOString() },
-];
-
 export function HistoryScreen({ onSelectReport }: HistoryScreenProps) {
   const [filter, setFilter] = useState<FilterType>('All');
   const [search, setSearch] = useState('');
-  const [historyItems, setHistoryItems] = useState<HistoryItem[]>(mockHistory);
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     async function fetchHistory() {
       setLoading(true);
       try {
-        const data = await CallShieldApi.getHistory(50);
-        if (data && data.length > 0) {
-          setHistoryItems(data);
+        const stored = await CallHistoryStorage.getCallHistory();
+        let items: HistoryItem[] = [];
+
+        if (stored && stored.length > 0) {
+          items = stored.map((rec, index) => ({
+            prediction_id: parseInt(rec.id) || Date.now() + index,
+            filename: rec.number || rec.name || 'Incoming Call',
+            predicted_label: rec.predicted_label || (rec.risk === 'scam' ? 'ai_generated' : 'human'),
+            ai_probability: (rec.confidence || 94) / 100,
+            risk_level: rec.risk === 'scam' ? 'high' : rec.risk === 'suspicious' ? 'medium' : 'low',
+            created_at: rec.timestamp || new Date().toISOString(),
+            confidence_percent: rec.confidence || 94,
+          }));
         }
-      } catch {
-        // Fallback to mock data if offline
+
+        try {
+          const apiData = await CallShieldApi.getHistory(50);
+          if (apiData && apiData.length > 0) {
+            const apiItems: HistoryItem[] = apiData.map((d: any) => ({
+              prediction_id: d.prediction_id,
+              filename: d.filename,
+              predicted_label: d.predicted_label,
+              ai_probability: d.ai_probability,
+              risk_level: d.risk_level,
+              created_at: d.created_at,
+              confidence_percent: Math.round((d.ai_confidence_percent || d.ai_probability * 100) ?? 94),
+            }));
+            items = [...items, ...apiItems];
+          }
+        } catch {
+          // Backend offline or unreachable
+        }
+
+        setHistoryItems(items);
+      } catch (err) {
+        console.warn('[HistoryScreen] Error loading history:', err);
       } finally {
         setLoading(false);
       }
@@ -115,7 +141,7 @@ export function HistoryScreen({ onSelectReport }: HistoryScreenProps) {
         {/* History Item Cards */}
         {filteredItems.map((item) => {
           const meta = getRiskMeta(item);
-          const confPercent = Math.round(item.ai_probability * 100);
+          const confPercent = item.confidence_percent ?? Math.round(item.ai_probability * 100);
 
           return (
             <GlassCard
