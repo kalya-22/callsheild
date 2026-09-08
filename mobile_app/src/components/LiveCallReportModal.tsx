@@ -12,7 +12,8 @@ import {
 import { C } from '../theme/colors';
 import { GlassCard } from './GlassCard';
 import { CircularGauge } from './CircularGauge';
-import { FinalCallReportData } from '../services/CallLiveStreamEngine';
+import { PdfReportExporter } from '../services/PdfReportExporter';
+import { FinalCallReportData, ChunkAnalysisItem } from '../services/CallLiveStreamEngine';
 
 interface LiveCallReportModalProps {
   visible: boolean;
@@ -26,12 +27,17 @@ export function LiveCallReportModal({ visible, reportData, onClose }: LiveCallRe
   const isScam = reportData.overallPrediction === 'ai_generated';
   const riskColor = isScam ? C.danger : C.success;
 
-  function handleExportPdf() {
+  async function handleExportPdf() {
     if (!reportData) return;
-    Alert.alert(
-      'Exporting Security Report',
-      `PDF evidence report generated for Call #${reportData.timestamp}.\nSaved to device downloads.`
-    );
+    await PdfReportExporter.generateAndSharePdf({
+      phoneNumber: 'Incoming Live Call Session',
+      timestamp: reportData.timestamp || new Date().toLocaleString(),
+      overallPrediction: reportData.overallPrediction,
+      overallRiskScore: Math.round(reportData.overallRiskScore || reportData.confidencePercent || 92),
+      riskLevel: isScam ? 'high' : 'low',
+      durationFormatted: reportData.callDurationFormatted,
+      timeline: reportData.detectionTimeline || [],
+    });
   }
 
   return (
@@ -91,7 +97,7 @@ export function LiveCallReportModal({ visible, reportData, onClose }: LiveCallRe
           {/* Detection Timeline Section */}
           <Text style={styles.sectionTitle}>Detection Timeline (2-3s Chunks)</Text>
 
-          {reportData.detectionTimeline.map((chunk) => (
+          {reportData.detectionTimeline.map((chunk: ChunkAnalysisItem) => (
             <GlassCard key={chunk.chunkId} style={styles.chunkCard}>
               <View style={styles.chunkMain}>
                 <Text style={styles.chunkTitle}>Chunk #{chunk.chunkId}</Text>

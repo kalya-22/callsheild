@@ -13,6 +13,7 @@ import { GlassCard } from '../components/GlassCard';
 import { CallShieldApi } from '../../services/CallShieldApi';
 
 import { CallHistoryStorage } from '../services/CallHistoryStorage';
+import { PdfReportExporter } from '../services/PdfReportExporter';
 
 type FilterType = 'All' | 'Safe' | 'Suspicious' | 'Scam';
 
@@ -170,6 +171,28 @@ export function HistoryScreen({ onSelectReport }: HistoryScreenProps) {
                     {meta.label} ({confPercent}%)
                   </Text>
                 </View>
+                <TouchableOpacity
+                  style={{
+                    marginTop: 6,
+                    paddingVertical: 4,
+                    paddingHorizontal: 8,
+                    borderRadius: 6,
+                    backgroundColor: C.cardBorder,
+                    alignItems: 'center',
+                  }}
+                  onPress={async () => {
+                    await PdfReportExporter.generateAndSharePdf({
+                      reportId: `CS-${item.prediction_id}`,
+                      phoneNumber: item.filename,
+                      timestamp: new Date(item.created_at).toLocaleString(),
+                      overallPrediction: item.predicted_label,
+                      overallRiskScore: confPercent,
+                      riskLevel: meta.label.toLowerCase(),
+                    });
+                  }}
+                >
+                  <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700' }}>📄 Export PDF</Text>
+                </TouchableOpacity>
               </View>
             </GlassCard>
           );
