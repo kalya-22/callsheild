@@ -313,6 +313,13 @@ def predict_live_audio_chunk(
     if is_ai_prediction and display_probability >= config.live_ai_chunk_threshold:
         calibrated_label = config.ai_label
 
+    from backend.app.services.model_attribution_service import ModelAttributionService
+
+    attribution = ModelAttributionService.attribute_audio_generator(
+        display_probability,
+        audio_rms=rms,
+    )
+
     return {
         "chunk_id": chunk_id,
         "predicted_label": calibrated_label,
@@ -326,6 +333,10 @@ def predict_live_audio_chunk(
         "current_chunk_risk_percent": round(display_probability * 100, 2),
         "final_call_verdict": calibrated_label,
         "audio_rms": round(rms, 6),
+        "attributed_generator": attribution["attributed_generator"],
+        "attribution_confidence": attribution["attribution_confidence"],
+        "synthesis_technique": attribution["synthesis_technique"],
+        "spectral_cutoff_khz": attribution["spectral_cutoff_khz"],
     }
 
 
