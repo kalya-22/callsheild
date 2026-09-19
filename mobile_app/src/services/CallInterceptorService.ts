@@ -3,6 +3,7 @@ import { CallShieldApi } from '../../services/CallShieldApi';
 import { callWebSocketService } from './CallWebSocketService';
 import { CallPermissionHandler } from './CallPermissionHandler';
 import { CallNotificationService } from './CallNotificationService';
+import { SupabaseService } from './SupabaseService';
 
 const { CallInterceptorModule } = NativeModules;
 
@@ -130,6 +131,24 @@ class CallInterceptorService {
         this.currentCallerNumber = this.resolveCallerNumber(event.phoneNumber);
         console.log(`[CallShield Interceptor] Ringing call from: ${this.currentCallerNumber}`);
         await CallPermissionHandler.ensurePhoneStatePermission();
+
+        // Immediate Pre-Call Scam Blacklist check
+        if (this.currentCallerNumber && this.currentCallerNumber !== 'Unknown Caller') {
+          SupabaseService.isScamBlacklisted(this.currentCallerNumber).then((isBlacklisted) => {
+            if (isBlacklisted) {
+              console.log(`[CallShield Interceptor] 🚨 BLACKLISTED CALLER DETECTED: ${this.currentCallerNumber}`);
+              CallNotificationService.sendBlacklistWarningNotification(this.currentCallerNumber);
+              if (this.onThreatCallback) {
+                this.onThreatCallback({
+                  riskLevel: 'high',
+                  probability: 99,
+                  verdict: 'ai_generated',
+                  blacklisted: true,
+                });
+              }
+            }
+          });
+        }
         break;
 
       case 'ON_CALL_CONNECTED':
@@ -137,6 +156,15 @@ class CallInterceptorService {
         console.log('[CallShield Interceptor] Call connected. Checking mic permission...');
         await CallPermissionHandler.ensureMicrophonePermission();
         callWebSocketService.connect();
+
+        // Double check blacklist on connect
+        if (this.currentCallerNumber && this.currentCallerNumber !== 'Unknown Caller') {
+          SupabaseService.isScamBlacklisted(this.currentCallerNumber).then((isBlacklisted) => {
+            if (isBlacklisted) {
+              CallNotificationService.sendBlacklistWarningNotification(this.currentCallerNumber);
+            }
+          });
+        }
         break;
 
       case 'ON_CHUNK_CAPTURED':

@@ -41,7 +41,21 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
   const [showReportModal, setShowReportModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [audioNotice, setAudioNotice] = useState<string | null>(null);
+  const [isBlacklisted, setIsBlacklisted] = useState(false);
   const isNativeCallSession = callerNumber !== 'Unknown Caller';
+
+  useEffect(() => {
+    // Check if caller number is on Supabase Scam Blacklist
+    if (callerNumber && callerNumber !== 'Unknown Caller') {
+      SupabaseService.isScamBlacklisted(callerNumber).then((blacklisted) => {
+        if (blacklisted) {
+          setIsBlacklisted(true);
+          setStatusBadge('scam');
+          setCurrentConfidence(99);
+        }
+      });
+    }
+  }, [callerNumber]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -272,6 +286,24 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
           <Text style={styles.callerName}>{callerNumber}</Text>
           <Text style={styles.callerSub}>Active Ongoing Call · {formatTimer(seconds)}</Text>
         </View>
+
+        {/* 🚨 Scam Blacklist Pre-Call Warning Banner */}
+        {isBlacklisted && (
+          <GlassCard style={styles.blacklistAlertCard}>
+            <View style={styles.blacklistHeader}>
+              <Text style={styles.blacklistIcon}>⛔</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.blacklistTitle}>BLACKLISTED SCAM CALLER</Text>
+                <Text style={styles.blacklistSub}>
+                  This phone number is flagged on CallShield's Global Scam Database. High risk of voice cloning or vishing fraud.
+                </Text>
+              </View>
+            </View>
+            <View style={styles.blacklistTag}>
+              <Text style={styles.blacklistTagText}>⚠️ DO NOT SHARE OTP, PASSWORDS OR BANK INFO</Text>
+            </View>
+          </GlassCard>
+        )}
 
         {isNativeCallSession && (
           <GlassCard style={styles.speakerHintCard}>
@@ -641,5 +673,48 @@ const styles = StyleSheet.create({
     color: C.text,
     fontSize: 14,
     fontWeight: '800',
+  },
+  blacklistAlertCard: {
+    padding: 16,
+    marginBottom: 16,
+    borderColor: C.danger,
+    borderWidth: 2,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+  },
+  blacklistHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 10,
+  },
+  blacklistIcon: {
+    fontSize: 24,
+  },
+  blacklistTitle: {
+    color: C.danger,
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  blacklistSub: {
+    color: C.textSec,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  blacklistTag: {
+    backgroundColor: C.dangerDim,
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    borderColor: C.danger,
+    borderWidth: 1,
+  },
+  blacklistTagText: {
+    color: C.danger,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
 });

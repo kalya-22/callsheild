@@ -114,6 +114,42 @@ export class CallNotificationService {
     }
   }
 
+  public static async sendBlacklistWarningNotification(
+    phoneNumber: string,
+    reportData?: any
+  ): Promise<void> {
+    const title = `⛔ BLACKLISTED SCAM CALLER: ${phoneNumber}`;
+    const body = `WARNING: ${phoneNumber} is on the CallShield Global Scam Blacklist! High-risk vishing fraud caller.`;
+
+    if (isExpoGo) {
+      Alert.alert(title, body);
+      return;
+    }
+
+    const Notifications = getNotificationsModule();
+    if (!Notifications) {
+      Alert.alert(title, body);
+      return;
+    }
+
+    await this.configure();
+
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body,
+          sound: true,
+          priority: Notifications.AndroidNotificationPriority.MAX,
+          data: { reportData: reportData || { phoneNumber, isBlacklisted: true, verdict: 'ai_generated', riskScore: 99 } },
+        },
+        trigger: null,
+      });
+    } catch {
+      Alert.alert(title, body);
+    }
+  }
+
   public static async sendSafeCallNotification(
     phoneNumber: string,
     confidence: number,
