@@ -44,41 +44,60 @@ def extract_features_from_audio(audio_path: Path, sr: int = 16000) -> dict[str, 
         return None
 
 
-def train_multilingual_model():
-    print("🧠 Starting English + Hindi ML Model Training Pipeline...")
+CHUNKS_DATA_DIR = PROJECT_ROOT / "ml" / "data" / "chunks"
+
+def train_multilingual_model(max_samples_per_class: int = 1500):
+    print("🧠 Starting English + Hindi + Kaggle Deepfake Model Training Pipeline...")
 
     feature_rows = []
     labels = []
 
-    # 1. Process AI-generated samples
-    ai_dir = RAW_DATA_DIR / "ai_generated"
-    if ai_dir.exists():
-        for file_path in ai_dir.glob("*.*"):
-            if file_path.suffix.lower() in [".wav", ".mp3", ".flac", ".ogg"]:
-                feat = extract_features_from_audio(file_path)
-                if feat:
-                    feature_rows.append(feat)
-                    labels.append("ai_generated")
+    # 1. Process AI-generated samples (sample up to max_samples_per_class)
+    ai_dir = CHUNKS_DATA_DIR / "ai_generated"
+    if not ai_dir.exists() or not list(ai_dir.glob("*.wav")):
+        ai_dir = RAW_DATA_DIR / "ai_generated"
+        
+    ai_files = list(ai_dir.glob("*.wav")) + list(ai_dir.glob("*.mp3"))
+    np.random.seed(42)
+    if len(ai_files) > max_samples_per_class:
+        selected_ai = np.random.choice(ai_files, size=max_samples_per_class, replace=False)
+    else:
+        selected_ai = ai_files
+
+    print(f"Extracting features from {len(selected_ai)} AI Deepfake chunks...")
+    for file_path in selected_ai:
+        feat = extract_features_from_audio(file_path)
+        if feat:
+            feature_rows.append(feat)
+            labels.append("ai_generated")
 
     # 2. Process Human natural speech samples
-    human_dir = RAW_DATA_DIR / "human"
-    if human_dir.exists():
-        for file_path in human_dir.glob("*.*"):
-            if file_path.suffix.lower() in [".wav", ".mp3", ".flac", ".ogg"]:
-                feat = extract_features_from_audio(file_path)
-                if feat:
-                    feature_rows.append(feat)
-                    labels.append("human")
+    human_dir = CHUNKS_DATA_DIR / "human"
+    if not human_dir.exists() or not list(human_dir.glob("*.wav")):
+        human_dir = RAW_DATA_DIR / "human"
+        
+    human_files = list(human_dir.glob("*.wav")) + list(human_dir.glob("*.mp3"))
+    if len(human_files) > max_samples_per_class:
+        selected_human = np.random.choice(human_files, size=max_samples_per_class, replace=False)
+    else:
+        selected_human = human_files
+
+    print(f"Extracting features from {len(selected_human)} Human voice chunks...")
+    for file_path in selected_human:
+        feat = extract_features_from_audio(file_path)
+        if feat:
+            feature_rows.append(feat)
+            labels.append("human")
 
     if not feature_rows:
-        print("❌ No audio files found in raw dataset directories!")
+        print("❌ No audio files found in dataset directories!")
         return
 
     df_features = pd.DataFrame(feature_rows)
     label_encoder = LabelEncoder()
     y = label_encoder.fit_transform(labels)
 
-    print(f"📊 Training on {len(df_features)} audio chunks ({labels.count('ai_generated')} AI vs {labels.count('human')} Human)")
+    print(f"📊 Training on {len(df_features)} total balanced audio chunks ({labels.count('ai_generated')} AI vs {labels.count('human')} Human)")
 
     # 3. Build Multi-Model Ensemble (Random Forest + Gradient Boosting)
     rf = RandomForestClassifier(n_estimators=150, max_depth=12, random_state=42)
