@@ -19,6 +19,7 @@ import { CallShieldApi } from '../../services/CallShieldApi';
 import { callInterceptorService } from '../services/CallInterceptorService';
 import { CallPermissionHandler } from '../services/CallPermissionHandler';
 import { CallHistoryStorage, CallRecord } from '../services/CallHistoryStorage';
+import { SupabaseService } from '../services/SupabaseService';
 
 interface RecentCall {
   id: string;
@@ -135,6 +136,17 @@ export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploa
 
       const updatedHistory = await CallHistoryStorage.saveCallRecord(newRecord);
       setRecentCalls(updatedHistory);
+
+      // Sync to Supabase cloud database
+      SupabaseService.savePredictionRecord({
+        filename: asset.name || 'uploaded_audio',
+        predicted_label: result.predicted_label,
+        ai_probability: result.ai_probability ?? result.ai_confidence_percent / 100,
+        risk_level: isScam ? 'high' : 'low',
+        warning: isScam,
+        chunk_count: result.chunk_count ?? 1,
+        chunk_predictions_json: JSON.stringify(result.chunk_predictions ?? []),
+      });
 
       if (onUploadSuccess) {
         onUploadSuccess(result);

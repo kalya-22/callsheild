@@ -23,6 +23,7 @@ import {
 import { CallShieldApi } from '../../services/CallShieldApi';
 import { callInterceptorService } from '../services/CallInterceptorService';
 import { CallHistoryStorage } from '../services/CallHistoryStorage';
+import { SupabaseService } from '../services/SupabaseService';
 
 
 interface LiveCallScreenProps {
@@ -119,6 +120,7 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
           : 'safe';
       const conf = Math.round(report.confidencePercent || report.overallRiskScore || 94);
 
+      // Save locally (offline fallback)
       await CallHistoryStorage.saveCallRecord({
         id: Date.now().toString(),
         name: phoneNum === 'Unknown Caller' ? 'Unknown Number' : phoneNum,
@@ -129,6 +131,24 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
         predicted_label: report.overallPrediction,
         timestamp: new Date().toISOString(),
       });
+
+      // Save to Supabase cloud database
+      SupabaseService.saveLiveCallReport({
+        phone_number: phoneNum === 'Unknown Caller' ? 'Unknown' : phoneNum,
+        final_verdict: report.overallPrediction,
+        overall_risk_score: conf,
+        risk_level: risk === 'scam' ? 'high' : risk === 'suspicious' ? 'medium' : 'low',
+        call_duration_seconds: report.callDurationSeconds,
+        chunk_count: report.totalChunksAnalyzed ?? report.detectionTimeline?.length ?? 0,
+      }).then((saved) => {
+        if (saved) console.log('[LiveCallScreen] Report synced to Supabase cloud ✅');
+      });
+
+      // Auto-add to scam blacklist if high risk
+      if (risk === 'scam' && phoneNum !== 'Unknown Caller') {
+        SupabaseService.addToScamBlacklist(phoneNum);
+      }
+
     } catch (err) {
       console.warn('[LiveCallScreen] Error saving history:', err);
     }
