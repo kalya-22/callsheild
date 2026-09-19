@@ -1,10 +1,18 @@
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 from pydantic import BaseModel
+
+# Load .env from backend directory
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
 
 
 class Settings(BaseModel):
     app_name: str = "CallShield"
     model_path: str = "ml/models/baseline_model.joblib"
-    database_url: str = "sqlite:///database/callshield.db"
+    supabase_url: str = os.environ.get("SUPABASE_URL", "")
+    supabase_anon_key: str = os.environ.get("SUPABASE_ANON_KEY", "")
     cors_allowed_origins: list[str] = [
         "http://localhost",
         "http://localhost:3000",

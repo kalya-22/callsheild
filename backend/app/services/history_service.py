@@ -1,170 +1,93 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
+from app.core.supabase_client import supabase
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DATABASE_DIR = PROJECT_ROOT / "database"
-DATABASE_PATH = DATABASE_DIR / "callshield.db"
-
-
-def get_connection() -> sqlite3.Connection:
-    DATABASE_DIR.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DATABASE_PATH)
-    connection.row_factory = sqlite3.Row
-    return connection
+TABLE = "prediction_history"
 
 
 def initialize_database() -> None:
-    with get_connection() as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS prediction_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                filename TEXT NOT NULL,
-                predicted_label TEXT NOT NULL,
-                ai_probability REAL NOT NULL,
-                risk_level TEXT NOT NULL,
-                warning INTEGER NOT NULL,
-                chunk_count INTEGER NOT NULL,
-                chunk_predictions_json TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        connection.commit()
+    """
+    No-op for Supabase — tables are created in the Supabase Dashboard SQL editor.
+    Kept for compatibility with main.py startup hook.
+    """
+    pass
 
 
 def save_prediction(result: dict[str, Any]) -> dict[str, Any]:
-    initialize_database()
     created_at = datetime.now(UTC).isoformat()
 
-    with get_connection() as connection:
-        cursor = connection.execute(
-            """
-            INSERT INTO prediction_history (
-                filename,
-                predicted_label,
-                ai_probability,
-                risk_level,
-                warning,
-                chunk_count,
-                chunk_predictions_json,
-                created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                result["filename"],
-                result["predicted_label"],
-                float(result["ai_probability"]),
-                result["risk_level"],
-                int(bool(result["warning"])),
-                int(result["chunk_count"]),
-                json.dumps(result["chunk_predictions"]),
-                created_at,
-            ),
-        )
-        connection.commit()
-        prediction_id = int(cursor.lastrowid)
+    row = {
+        "filename": result["filename"],
+        "predicted_label": result["predicted_label"],
+        "ai_probability": float(result["ai_probability"]),
+        "risk_level": result["risk_level"],
+        "warning": bool(result["warning"]),
+        "chunk_count": int(result.get("chunk_count", 1)),
+        "chunk_predictions_json": json.dumps(result.get("chunk_predictions", [])),
+        "created_at": created_at,
+    }
 
-    result["prediction_id"] = prediction_id
+    response = supabase.table(TABLE).insert(row).execute()
+    inserted = response.data[0] if response.data else {}
+
+    result["prediction_id"] = inserted.get("id")
     result["created_at"] = created_at
     return result
 
 
 def list_predictions(limit: int = 20) -> list[dict[str, Any]]:
-    initialize_database()
     limit = max(1, min(limit, 100))
-
-    with get_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT
-                id,
-                filename,
-                predicted_label,
-                ai_probability,
-                risk_level,
-                warning,
-                chunk_count,
-                created_at
-            FROM prediction_history
-            ORDER BY id DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
-
-    return [row_to_summary(row) for row in rows]
+    response = (
+        supabase.table(TABLE)
+        .select("id, filename, predicted_label, ai_probability, risk_level, warning, chunk_count, created_at")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return [_row_to_summary(row) for row in (response.data or [])]
 
 
 def get_prediction(prediction_id: int) -> dict[str, Any] | None:
-    initialize_database()
-
-    with get_connection() as connection:
-        row = connection.execute(
-            """
-            SELECT *
-            FROM prediction_history
-            WHERE id = ?
-            """,
-            (prediction_id,),
-        ).fetchone()
-
-    if row is None:
+    response = (
+        supabase.table(TABLE)
+        .select("*")
+        .eq("id", prediction_id)
+        .single()
+        .execute()
+    )
+    if not response.data:
         return None
-    return row_to_detail(row)
+    return _row_to_detail(response.data)
 
 
 def count_predictions() -> int:
-    initialize_database()
-
-    with get_connection() as connection:
-        row = connection.execute(
-            """
-            SELECT COUNT(*) AS total
-            FROM prediction_history
-            """
-        ).fetchone()
-
-    return int(row["total"])
+    response = supabase.table(TABLE).select("id", count="exact").execute()
+    return response.count or 0
 
 
 def delete_prediction(prediction_id: int) -> bool:
-    initialize_database()
-
-    with get_connection() as connection:
-        cursor = connection.execute(
-            """
-            DELETE FROM prediction_history
-            WHERE id = ?
-            """,
-            (prediction_id,),
-        )
-        connection.commit()
-
-    return cursor.rowcount > 0
+    response = (
+        supabase.table(TABLE)
+        .delete()
+        .eq("id", prediction_id)
+        .execute()
+    )
+    return bool(response.data)
 
 
 def clear_predictions() -> int:
-    initialize_database()
-
-    with get_connection() as connection:
-        total = count_predictions()
-        connection.execute("DELETE FROM prediction_history")
-        connection.commit()
-
+    total = count_predictions()
+    supabase.table(TABLE).delete().neq("id", 0).execute()
     return total
 
 
-def row_to_summary(row: sqlite3.Row) -> dict[str, Any]:
+def _row_to_summary(row: dict[str, Any]) -> dict[str, Any]:
     return {
-        "prediction_id": int(row["id"]),
+        "prediction_id": row["id"],
         "filename": row["filename"],
         "predicted_label": row["predicted_label"],
         "ai_probability": float(row["ai_probability"]),
@@ -175,7 +98,7 @@ def row_to_summary(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def row_to_detail(row: sqlite3.Row) -> dict[str, Any]:
-    detail = row_to_summary(row)
-    detail["chunk_predictions"] = json.loads(row["chunk_predictions_json"])
+def _row_to_detail(row: dict[str, Any]) -> dict[str, Any]:
+    detail = _row_to_summary(row)
+    detail["chunk_predictions"] = json.loads(row.get("chunk_predictions_json") or "[]")
     return detail
