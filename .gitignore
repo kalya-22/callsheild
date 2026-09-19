@@ -18,6 +18,9 @@ env/
 *.joblib
 *.h5
 *.onnx
+!ml/models/baseline_model.joblib
+!ml/models/callshield_model.onnx
+!mobile_app/android/app/src/main/assets/callshield_model.onnx
 *.wav
 *.flac
 *.mp3
