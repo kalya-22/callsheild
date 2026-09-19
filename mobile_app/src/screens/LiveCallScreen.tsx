@@ -473,6 +473,7 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
       <LiveCallReportModal
         visible={showReportModal}
         reportData={finalReportData}
+        phoneNumber={callerNumber}
         onClose={() => {
           setShowReportModal(false);
           onEndCall();

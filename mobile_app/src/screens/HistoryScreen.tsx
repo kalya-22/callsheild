@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ScrollView,
   SafeAreaView,
+  Alert,
 } from 'react-native';
 import { C } from '../theme/colors';
 import { GlassCard } from '../components/GlassCard';
@@ -244,6 +245,42 @@ export function HistoryScreen({ onSelectReport }: HistoryScreenProps) {
                   }}
                 >
                   <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700' }}>📄 Export PDF</Text>
+                </TouchableOpacity>
+
+                {/* One-Tap Blacklist Button */}
+                <TouchableOpacity
+                  style={{
+                    marginTop: 4,
+                    paddingVertical: 3,
+                    paddingHorizontal: 8,
+                    borderRadius: 6,
+                    backgroundColor: C.dangerDim,
+                    borderColor: C.danger,
+                    borderWidth: 1,
+                    alignItems: 'center',
+                  }}
+                  onPress={async () => {
+                    const phone = item.filename;
+                    if (!phone || phone.includes('sample') || phone.includes('.wav') || phone.includes('.mp3')) {
+                      Alert.alert('Cannot Blacklist', 'Selected entry is an uploaded audio file, not a phone number.');
+                      return;
+                    }
+                    try {
+                      const success = await SupabaseService.addToScamBlacklist(phone);
+                      if (success) {
+                        Alert.alert(
+                          '🚨 Number Added to Blacklist',
+                          `"${phone}" has been successfully added to CallShield's Global Scam Blacklist.`
+                        );
+                      } else {
+                        Alert.alert('Error', 'Unable to sync blacklist to Supabase cloud.');
+                      }
+                    } catch (err: any) {
+                      Alert.alert('Error', err.message || 'Failed to blacklist number');
+                    }
+                  }}
+                >
+                  <Text style={{ color: C.danger, fontSize: 10, fontWeight: '800' }}>🚨 Blacklist</Text>
                 </TouchableOpacity>
               </View>
             </GlassCard>

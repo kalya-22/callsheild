@@ -14,23 +14,29 @@ import { GlassCard } from './GlassCard';
 import { CircularGauge } from './CircularGauge';
 import { PdfReportExporter } from '../services/PdfReportExporter';
 import { FinalCallReportData, ChunkAnalysisItem } from '../services/CallLiveStreamEngine';
+import { SupabaseService } from '../services/SupabaseService';
 
 interface LiveCallReportModalProps {
   visible: boolean;
   reportData: FinalCallReportData | null;
+  phoneNumber?: string;
   onClose: () => void;
 }
 
-export function LiveCallReportModal({ visible, reportData, onClose }: LiveCallReportModalProps) {
+export function LiveCallReportModal({ visible, reportData, phoneNumber, onClose }: LiveCallReportModalProps) {
+  const [isReported, setIsReported] = React.useState(false);
+  const [isReporting, setIsReporting] = React.useState(false);
+
   if (!visible || !reportData) return null;
 
   const isScam = reportData.overallPrediction === 'ai_generated';
   const riskColor = isScam ? C.danger : C.success;
+  const callerTarget = phoneNumber || 'Incoming Live Call Session';
 
   async function handleExportPdf() {
     if (!reportData) return;
     await PdfReportExporter.generateAndSharePdf({
-      phoneNumber: 'Incoming Live Call Session',
+      phoneNumber: callerTarget,
       timestamp: reportData.timestamp || new Date().toLocaleString(),
       overallPrediction: reportData.overallPrediction,
       overallRiskScore: Math.round(reportData.overallRiskScore || reportData.confidencePercent || 92),
@@ -38,6 +44,30 @@ export function LiveCallReportModal({ visible, reportData, onClose }: LiveCallRe
       durationFormatted: reportData.callDurationFormatted,
       timeline: reportData.detectionTimeline || [],
     });
+  }
+
+  async function handleReportScam() {
+    if (!phoneNumber || phoneNumber === 'Unknown Caller') {
+      Alert.alert('Cannot Report', 'Caller number is unknown or unverified.');
+      return;
+    }
+    setIsReporting(true);
+    try {
+      const success = await SupabaseService.addToScamBlacklist(phoneNumber);
+      if (success) {
+        setIsReported(true);
+        Alert.alert(
+          '🚨 Number Reported to Global Blacklist',
+          `Phone number "${phoneNumber}" has been reported to CallShield's cloud intelligence database.`
+        );
+      } else {
+        Alert.alert('Report Failed', 'Unable to sync report to Supabase.');
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to submit report');
+    } finally {
+      setIsReporting(false);
+    }
   }
 
   return (
@@ -151,6 +181,21 @@ export function LiveCallReportModal({ visible, reportData, onClose }: LiveCallRe
 
           {/* Action Buttons */}
           <View style={styles.actionsRow}>
+            {/* One-Tap Report Scam to Blacklist */}
+            <TouchableOpacity
+              style={[styles.reportBtn, isReported && styles.reportBtnDisabled]}
+              onPress={handleReportScam}
+              disabled={isReported || isReporting}
+            >
+              <Text style={styles.reportBtnText}>
+                {isReported
+                  ? '✅ Reported to Global Blacklist'
+                  : isReporting
+                  ? 'Reporting...'
+                  : '🚨 One-Tap Report as Scam Number'}
+              </Text>
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.exportBtn} onPress={handleExportPdf}>
               <Text style={styles.exportBtnText}>📄 Export PDF Security Report</Text>
             </TouchableOpacity>
@@ -287,6 +332,24 @@ const styles = StyleSheet.create({
   actionsRow: {
     gap: 12,
     marginTop: 20,
+  },
+  reportBtn: {
+    height: 50,
+    borderRadius: 16,
+    backgroundColor: C.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderColor: 'rgba(239, 68, 68, 0.4)',
+    borderWidth: 1,
+  },
+  reportBtnDisabled: {
+    backgroundColor: C.dangerDim,
+    opacity: 0.8,
+  },
+  reportBtnText: {
+    color: C.text,
+    fontSize: 14,
+    fontWeight: '800',
   },
   exportBtn: {
     height: 50,
