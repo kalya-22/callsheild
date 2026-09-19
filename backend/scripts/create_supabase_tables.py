@@ -54,29 +54,44 @@ DDL_STATEMENTS = [
         source       TEXT        NOT NULL DEFAULT 'user_report'
     );
     """,
+    # 4. Users (CallShield user accounts)
+    """
+    CREATE TABLE IF NOT EXISTS users (
+        id              BIGSERIAL PRIMARY KEY,
+        full_name       TEXT        NOT NULL,
+        email           TEXT        NOT NULL UNIQUE,
+        password_salt   TEXT        NOT NULL,
+        password_hash   TEXT        NOT NULL,
+        auth_token      TEXT,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_login_at   TIMESTAMPTZ
+    );
+    ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY "Allow all" ON users FOR ALL USING (true) WITH CHECK (true);
+    """,
 ]
 
-def main() -> None:
-    print(f"🔗 Connecting to Supabase: {SUPABASE_URL}")
+TABLE_NAMES = ["prediction_history", "live_call_reports", "scam_blacklist", "users"]
 
-    for i, ddl in enumerate(DDL_STATEMENTS, start=1):
-        table_name = ["prediction_history", "live_call_reports", "scam_blacklist"][i - 1]
+def main() -> None:
+    print(f"Connecting to Supabase: {SUPABASE_URL}")
+
+    for i, ddl in enumerate(DDL_STATEMENTS):
+        table_name = TABLE_NAMES[i]
         try:
-            # Use Supabase RPC to run raw SQL (requires service role or use dashboard)
-            # For anon key, we can verify by attempting a select
             result = supabase.table(table_name).select("id").limit(1).execute()
-            print(f"  ✅ Table '{table_name}' already exists and is accessible.")
+            print(f"  [OK] Table '{table_name}' exists and is accessible.")
         except Exception as e:
             error_msg = str(e)
             if "does not exist" in error_msg or "relation" in error_msg:
-                print(f"  ❌ Table '{table_name}' does NOT exist yet.")
-                print(f"     → Please run the SQL below in Supabase Dashboard > SQL Editor:")
+                print(f"  [MISSING] Table '{table_name}' does NOT exist yet.")
+                print(f"     -> Please run the SQL below in Supabase Dashboard > SQL Editor:")
                 print(ddl)
             else:
-                print(f"  ⚠️  Table '{table_name}': {error_msg}")
+                print(f"  [WARN] Table '{table_name}': {error_msg}")
 
-    print("\n🎉 Supabase connection verified successfully!")
-    print("📋 If any tables are missing, run the SQL in: https://supabase.com/dashboard/project/vwhfjcpjyjkglionqpny/sql/new")
+    print("\nSupabase table verification finished!")
+    print("If any tables are missing, run the SQL in: https://supabase.com/dashboard/project/vwhfjcpjyjkglionqpny/sql/new")
 
 if __name__ == "__main__":
     main()

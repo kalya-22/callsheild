@@ -41,12 +41,27 @@ CREATE TABLE IF NOT EXISTS scam_blacklist (
     source              TEXT        NOT NULL DEFAULT 'user_report'
 );
 
+-- 4. Users (CallShield user accounts)
+CREATE TABLE IF NOT EXISTS users (
+    id              BIGSERIAL PRIMARY KEY,
+    full_name       TEXT        NOT NULL,
+    email           TEXT        NOT NULL UNIQUE,
+    password_salt   TEXT        NOT NULL,
+    password_hash   TEXT        NOT NULL,
+    auth_token      TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_login_at   TIMESTAMPTZ
+);
+
 -- Enable Row Level Security (optional but recommended)
 ALTER TABLE prediction_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE live_call_reports  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scam_blacklist      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users               ENABLE ROW LEVEL SECURITY;
 
 -- Allow public anon access for now (all read/write)
 CREATE POLICY "Allow all" ON prediction_history FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all" ON live_call_reports  FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all" ON scam_blacklist      FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all" ON users               FOR ALL USING (true) WITH CHECK (true);
+

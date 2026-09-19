@@ -14,6 +14,7 @@ import { CallShieldApi } from '../../services/CallShieldApi';
 
 import { CallHistoryStorage } from '../services/CallHistoryStorage';
 import { PdfReportExporter } from '../services/PdfReportExporter';
+import { SupabaseService } from '../services/SupabaseService';
 
 type FilterType = 'All' | 'Safe' | 'Suspicious' | 'Scam';
 
@@ -25,6 +26,7 @@ interface HistoryItem {
   risk_level: string;
   created_at: string;
   confidence_percent?: number;
+  source?: 'local' | 'api' | 'cloud_call' | 'cloud_prediction';
 }
 
 interface HistoryScreenProps {
@@ -41,21 +43,63 @@ export function HistoryScreen({ onSelectReport }: HistoryScreenProps) {
     async function fetchHistory() {
       setLoading(true);
       try {
-        const stored = await CallHistoryStorage.getCallHistory();
-        let items: HistoryItem[] = [];
+        const items: HistoryItem[] = [];
 
-        if (stored && stored.length > 0) {
-          items = stored.map((rec, index) => ({
-            prediction_id: parseInt(rec.id) || Date.now() + index,
-            filename: rec.number || rec.name || 'Incoming Call',
-            predicted_label: rec.predicted_label || (rec.risk === 'scam' ? 'ai_generated' : 'human'),
-            ai_probability: (rec.confidence || 94) / 100,
-            risk_level: rec.risk === 'scam' ? 'high' : rec.risk === 'suspicious' ? 'medium' : 'low',
-            created_at: rec.timestamp || new Date().toISOString(),
-            confidence_percent: rec.confidence || 94,
-          }));
-        }
+        // Source 1: Local AsyncStorage (offline fallback)
+        try {
+          const stored = await CallHistoryStorage.getCallHistory();
+          if (stored && stored.length > 0) {
+            const localItems = stored.map((rec, index) => ({
+              prediction_id: parseInt(rec.id) || Date.now() + index,
+              filename: rec.number || rec.name || 'Incoming Call',
+              predicted_label: rec.predicted_label || (rec.risk === 'scam' ? 'ai_generated' : 'human'),
+              ai_probability: (rec.confidence || 94) / 100,
+              risk_level: rec.risk === 'scam' ? 'high' : rec.risk === 'suspicious' ? 'medium' : 'low',
+              created_at: rec.timestamp || new Date().toISOString(),
+              confidence_percent: rec.confidence || 94,
+              source: 'local' as const,
+            }));
+            items.push(...localItems);
+          }
+        } catch { /* local storage unavailable */ }
 
+        // Source 2: Supabase live_call_reports (cloud phone call history)
+        try {
+          const cloudCalls = await SupabaseService.getLiveCallReports(50);
+          if (cloudCalls && cloudCalls.length > 0) {
+            const cloudCallItems: HistoryItem[] = cloudCalls.map((r: any, idx: number) => ({
+              prediction_id: r.id ?? Date.now() + idx + 1000,
+              filename: r.phone_number || 'Live Call',
+              predicted_label: r.final_verdict || 'human',
+              ai_probability: (r.overall_risk_score || 0) / 100,
+              risk_level: r.risk_level || 'low',
+              created_at: r.created_at || new Date().toISOString(),
+              confidence_percent: r.overall_risk_score || 0,
+              source: 'cloud_call' as const,
+            }));
+            items.push(...cloudCallItems);
+          }
+        } catch { /* Supabase live_call_reports unavailable */ }
+
+        // Source 3: Supabase prediction_history (cloud audio upload history)
+        try {
+          const cloudPreds = await SupabaseService.getPredictionHistory(50);
+          if (cloudPreds && cloudPreds.length > 0) {
+            const cloudPredItems: HistoryItem[] = (cloudPreds as any[]).map((d, idx) => ({
+              prediction_id: d.id ?? Date.now() + idx + 2000,
+              filename: d.filename,
+              predicted_label: d.predicted_label,
+              ai_probability: d.ai_probability,
+              risk_level: d.risk_level,
+              created_at: d.created_at,
+              confidence_percent: Math.round(d.ai_probability * 100),
+              source: 'cloud_prediction' as const,
+            }));
+            items.push(...cloudPredItems);
+          }
+        } catch { /* Supabase prediction_history unavailable */ }
+
+        // Source 4: Backend API history (prediction_history via FastAPI)
         try {
           const apiData = await CallShieldApi.getHistory(50);
           if (apiData && apiData.length > 0) {
@@ -67,14 +111,22 @@ export function HistoryScreen({ onSelectReport }: HistoryScreenProps) {
               risk_level: d.risk_level,
               created_at: d.created_at,
               confidence_percent: Math.round((d.ai_confidence_percent || d.ai_probability * 100) ?? 94),
+              source: 'api' as const,
             }));
-            items = [...items, ...apiItems];
+            items.push(...apiItems);
           }
-        } catch {
-          // Backend offline or unreachable
-        }
+        } catch { /* Backend offline */ }
 
-        setHistoryItems(items);
+        // Deduplicate by prediction_id and sort by newest first
+        const seen = new Set<number>();
+        const unique = items.filter((item) => {
+          if (seen.has(item.prediction_id)) return false;
+          seen.add(item.prediction_id);
+          return true;
+        });
+        unique.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+        setHistoryItems(unique);
       } catch (err) {
         console.warn('[HistoryScreen] Error loading history:', err);
       } finally {

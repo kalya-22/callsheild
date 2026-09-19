@@ -45,6 +45,8 @@ export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploa
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
 
+  const [stats, setStats] = useState({ scamsBlocked: 0, callsAnalyzed: 0, protectionScore: 99 });
+
   // Dynamic time of day greeting
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -56,10 +58,12 @@ export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploa
   useEffect(() => {
     async function loadRealHistory() {
       try {
-        const stored = await CallHistoryStorage.getCallHistory();
+        const stored = await CallHistoryStorage.syncFromCloud();
         if (stored && stored.length > 0) {
           setRecentCalls(stored);
         }
+        const s = await CallHistoryStorage.getStats();
+        setStats(s);
       } catch (err) {
         console.warn('[HomeScreen] Error loading history:', err);
       }
@@ -136,6 +140,8 @@ export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploa
 
       const updatedHistory = await CallHistoryStorage.saveCallRecord(newRecord);
       setRecentCalls(updatedHistory);
+      const s = await CallHistoryStorage.getStats();
+      setStats(s);
 
       // Sync to Supabase cloud database
       SupabaseService.savePredictionRecord({
@@ -178,21 +184,35 @@ export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploa
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-        {/* Header Bar */}
+        {/* Header */}
         <View style={styles.header}>
           <View>
             <Text style={styles.greetingText}>{getGreeting()}</Text>
             <Text style={styles.userName}>{userName} 👋</Text>
           </View>
-
-          {/* Backend Server Status Pill */}
-          <View style={[styles.statusBadge, { borderColor: backendOnline ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)' }]}>
-            <View style={[styles.statusDot, { backgroundColor: backendOnline ? C.success : C.danger }]} />
-            <Text style={styles.statusText}>{backendOnline ? 'AI Online' : 'Local Mode'}</Text>
+          <View
+            style={[
+              styles.statusBadge,
+              {
+                borderColor: backendOnline
+                  ? 'rgba(34, 197, 94, 0.3)'
+                  : 'rgba(239, 68, 68, 0.3)',
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.statusDot,
+                { backgroundColor: backendOnline ? C.success : C.danger },
+              ]}
+            />
+            <Text style={styles.statusText}>
+              {backendOnline ? 'AI Online' : 'Local Mode'}
+            </Text>
           </View>
         </View>
 
-        {/* Shield Toggle Banner */}
+        {/* Live Shield Status Card */}
         <GlassCard bright style={styles.shieldBanner}>
           <View style={styles.shieldLeft}>
             <ShieldLogo size={56} animate={protectionActive} />
@@ -201,7 +221,9 @@ export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploa
                 {protectionActive ? 'Live Shield Active' : 'Shield Paused'}
               </Text>
               <Text style={styles.shieldStatusSub}>
-                {protectionActive ? 'Real-time AI monitoring active' : 'Tap to resume call protection'}
+                {protectionActive
+                  ? 'Real-time AI monitoring active'
+                  : 'Tap to resume call protection'}
               </Text>
             </View>
           </View>
@@ -213,7 +235,7 @@ export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploa
           />
         </GlassCard>
 
-        {/* Native Android Call Interceptor Toggle */}
+        {/* Native Android Call Interceptor Toggle Card */}
         <GlassCard bright style={styles.interceptorCard}>
           <View style={styles.shieldLeft}>
             <View style={styles.interceptorIconCircle}>
@@ -238,7 +260,7 @@ export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploa
           />
         </GlassCard>
 
-        {/* Upload Audio File Banner */}
+        {/* Upload Audio for AI Detection Card */}
         <GlassCard bright style={styles.uploadCard}>
           <View style={styles.uploadInfo}>
             <Text style={styles.uploadTitle}>📁 Upload Audio File for AI Detection</Text>
@@ -278,17 +300,17 @@ export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploa
         <Text style={styles.sectionHeader}>Security Snapshot</Text>
         <View style={styles.statsGrid}>
           <GlassCard style={styles.statCard}>
-            <Text style={[styles.statValue, { color: C.danger }]}>14</Text>
+            <Text style={[styles.statValue, { color: C.danger }]}>{stats.scamsBlocked}</Text>
             <Text style={styles.statLabel}>Scams Blocked</Text>
           </GlassCard>
 
           <GlassCard style={styles.statCard}>
-            <Text style={[styles.statValue, { color: C.accent }]}>48</Text>
+            <Text style={[styles.statValue, { color: C.accent }]}>{stats.callsAnalyzed}</Text>
             <Text style={styles.statLabel}>Calls Analyzed</Text>
           </GlassCard>
 
           <GlassCard style={styles.statCard}>
-            <Text style={[styles.statValue, { color: C.success }]}>99%</Text>
+            <Text style={[styles.statValue, { color: C.success }]}>{stats.protectionScore}%</Text>
             <Text style={styles.statLabel}>Protection Score</Text>
           </GlassCard>
         </View>
