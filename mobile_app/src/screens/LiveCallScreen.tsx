@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
+  NativeModules,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { C } from '../theme/colors';
@@ -169,15 +170,14 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
   }
 
   async function handleStartProtection() {
-    const success = await callLiveStreamEngine.startLiveProtection((chunk, currentList) => {
-      setChunkTimeline([...currentList]);
-      const conf = chunk.confidencePercent;
-      setCurrentConfidence(conf);
-      setStatusBadge(chunk.riskLevel);
-    });
-
-    if (success) {
-      setIsMonitoring(true);
+    if (Platform.OS === 'android' && NativeModules.CallInterceptorModule?.startCallProtection) {
+      try {
+        await NativeModules.CallInterceptorModule.startCallProtection();
+        callInterceptorService.beginAnalyzingExistingCall(callerNumber);
+        setIsMonitoring(true);
+      } catch (err) {
+        console.warn('[LiveCallScreen] Error starting native audio streamer:', err);
+      }
     }
   }
 
