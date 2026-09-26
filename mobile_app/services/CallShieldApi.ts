@@ -29,16 +29,35 @@ function getDynamicHostIp(): string {
 export class CallShieldApi {
   private static dynamicIp = getDynamicHostIp();
 
-  public static baseUrl: string = 'https://callshield-api.localtunnel.me/api/v1';
+  public static baseUrl: string = 'http://10.153.26.231:8000/api/v1';
 
   public static async getStatus(): Promise<any> {
-    try {
-      const response = await fetch(`${CallShieldApi.baseUrl}/status`);
-      if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
-      return await response.json();
-    } catch (error) {
-      throw new Error(`Backend offline: ${error}`);
+    const candidates = [
+      CallShieldApi.baseUrl,
+      'http://10.153.26.231:8000/api/v1',
+      'https://callshield-api.localtunnel.me/api/v1',
+      `http://${CallShieldApi.dynamicIp}:8000/api/v1`,
+      'http://10.0.2.2:8000/api/v1',
+    ];
+    const uniqueCandidates = Array.from(new Set(candidates));
+
+    for (const url of uniqueCandidates) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
+        const response = await fetch(`${url}/status`, { credentials: 'omit' });
+        clearTimeout(timeoutId);
+        if (response.ok) {
+          const data = await response.json();
+          CallShieldApi.baseUrl = url;
+          console.log('[CallShield] Successfully connected to Online AI Backend at:', url);
+          return data;
+        }
+      } catch (err) {
+        // try next endpoint
+      }
     }
+    throw new Error('Backend offline');
   }
 
   public static async signup(fullName: string, email: string, password: string): Promise<any> {
