@@ -196,58 +196,72 @@ class CallAudioStreamerService : Service() {
 
     private fun sendChunkToBackend(pcmData: ByteArray, chunkId: Int, rms: Double) {
         thread {
-            try {
-                val url = URL("https://callshield-api.localtunnel.me/api/v1/predict-chunk")
-                val conn = url.openConnection() as HttpURLConnection
-                val wavData = buildWav(pcmData)
-                val fileName = "live_call_$chunkId.wav"
+            val endpoints = listOf(
+                "https://callshield-api.localtunnel.me/api/v1/predict-chunk",
+                "http://10.153.26.231:8000/api/v1/predict-chunk",
+                "http://10.0.2.2:8000/api/v1/predict-chunk"
+            )
+            var delivered = false
 
-                val encPair = encryptAesGcm(wavData)
-                val jsonBody = if (encPair != null) {
-                    JSONObject().apply {
-                        put("filename", fileName)
-                        put("encrypted_audio_base64", encPair.first)
-                        put("iv_base64", encPair.second)
-                    }.toString()
-                } else {
-                    val rawBase64 = Base64.encodeToString(wavData, Base64.NO_WRAP)
-                    JSONObject().apply {
-                        put("filename", fileName)
-                        put("audio_base64", rawBase64)
-                    }.toString()
+            for (endpointUrl in endpoints) {
+                try {
+                    val url = URL(endpointUrl)
+                    val conn = url.openConnection() as HttpURLConnection
+                    val wavData = buildWav(pcmData)
+                    val fileName = "live_call_$chunkId.wav"
+
+                    val encPair = encryptAesGcm(wavData)
+                    val jsonBody = if (encPair != null) {
+                        JSONObject().apply {
+                            put("filename", fileName)
+                            put("encrypted_audio_base64", encPair.first)
+                            put("iv_base64", encPair.second)
+                        }.toString()
+                    } else {
+                        val rawBase64 = Base64.encodeToString(wavData, Base64.NO_WRAP)
+                        JSONObject().apply {
+                            put("filename", fileName)
+                            put("audio_base64", rawBase64)
+                        }.toString()
+                    }
+
+                    conn.requestMethod = "POST"
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.setRequestProperty("Accept", "application/json")
+                    conn.doOutput = true
+                    conn.connectTimeout = 1200
+                    conn.readTimeout = 2000
+
+                    val os: OutputStream = conn.outputStream
+                    os.write(jsonBody.toByteArray(Charsets.UTF_8))
+                    os.flush()
+                    os.close()
+
+                    val responseCode = conn.responseCode
+                    android.util.Log.d("CallShieldStreamer", "Chunk #$chunkId sent to $endpointUrl: $responseCode")
+                    if (responseCode in 200..299) {
+                        val responseText = conn.inputStream.bufferedReader().use { it.readText() }
+                        val json = JSONObject(responseText)
+                        CallInterceptorModule.emitChunkPrediction(
+                            phoneNumber,
+                            chunkId,
+                            json.optDouble("ai_probability", 0.0),
+                            json.optString("predicted_label", "human"),
+                            json.optString("risk_level", "safe"),
+                            json.optString("raw_predicted_label", "online_ai_classified"),
+                            json.optDouble("audio_rms", rms)
+                        )
+                        delivered = true
+                        conn.disconnect()
+                        break
+                    }
+                    conn.disconnect()
+                } catch (e: Exception) {
+                    // Try next endpoint in list
                 }
+            }
 
-                conn.requestMethod = "POST"
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.setRequestProperty("Accept", "application/json")
-                conn.doOutput = true
-                conn.connectTimeout = 1500
-                conn.readTimeout = 2500
-
-                val os: OutputStream = conn.outputStream
-                os.write(jsonBody.toByteArray(Charsets.UTF_8))
-                os.flush()
-                os.close()
-
-                val responseCode = conn.responseCode
-                android.util.Log.d("CallShieldStreamer", "Chunk #$chunkId response: $responseCode")
-                if (responseCode in 200..299) {
-                    val responseText = conn.inputStream.bufferedReader().use { it.readText() }
-                    val json = JSONObject(responseText)
-                    CallInterceptorModule.emitChunkPrediction(
-                        phoneNumber,
-                        chunkId,
-                        json.optDouble("ai_probability", 0.0),
-                        json.optString("predicted_label", "insufficient_audio"),
-                        json.optString("risk_level", "low"),
-                        json.optString("raw_predicted_label", ""),
-                        json.optDouble("audio_rms", rms)
-                    )
-                } else {
-                    emitFallbackChunk(chunkId, rms, pcmData)
-                }
-                conn.disconnect()
-            } catch (e: Exception) {
+            if (!delivered) {
                 // Instantly emit offline DSP fallback without locking or freezing
                 emitFallbackChunk(chunkId, rms, pcmData)
             }
