@@ -67,9 +67,8 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
       const prob = result.ai_probability ?? 0.05;
       const conf = Math.round(prob * 100);
       const isInsufficientAudio =
-        result.predicted_label === 'insufficient_audio' ||
-        result.raw_predicted_label === 'too_quiet' ||
-        (typeof result.audio_rms === 'number' && result.audio_rms > 0 && result.audio_rms < 0.000001);
+        result.predicted_label === 'insufficient_audio' &&
+        result.raw_predicted_label === 'too_quiet';
       const predictedLabel = isInsufficientAudio
         ? 'insufficient_audio'
         : result.predicted_label === 'ai_generated' ? 'ai_generated' : 'human';
@@ -91,7 +90,7 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
       setStatusBadge(risk);
       setAudioNotice(
         isInsufficientAudio
-          ? 'CallShield is receiving very low speaker audio. Increase call volume, keep speaker on, and keep the phone microphone near the speaker.'
+          ? 'CallShield is receiving very low speaker audio. Keep speaker on and increase call volume.'
           : null
       );
       setIsMonitoring(true);

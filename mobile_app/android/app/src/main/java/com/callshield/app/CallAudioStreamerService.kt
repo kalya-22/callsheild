@@ -78,24 +78,33 @@ class CallAudioStreamerService : Service() {
     private fun startStreaming() {
         if (isRecording) return
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
-        val bufferSize = maxOf(minBufferSize, chunkSize)
+        val bufferSize = maxOf(minBufferSize * 4, chunkSize * 2)
 
-        val sources = mutableListOf<Int>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            sources.add(MediaRecorder.AudioSource.UNPROCESSED)
-        }
-        sources.add(MediaRecorder.AudioSource.MIC)
-        sources.add(MediaRecorder.AudioSource.CAMCORDER)
-        sources.add(MediaRecorder.AudioSource.VOICE_RECOGNITION)
-        sources.add(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
-        sources.add(MediaRecorder.AudioSource.DEFAULT)
+        // Prioritize VOICE_COMMUNICATION & VOICE_RECOGNITION which are permitted during active telephony calls
+        val sources = intArrayOf(
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.DEFAULT
+        )
 
         for (source in sources) {
             try {
                 val recorder = AudioRecord(source, sampleRate, channelConfig, audioFormat, bufferSize)
                 if (recorder.state == AudioRecord.STATE_INITIALIZED) {
                     audioRecord = recorder
-                    android.util.Log.d("CallShieldStreamer", "AudioRecord initialized with source: $source")
+                    android.util.Log.d("CallShieldStreamer", "AudioRecord successfully initialized with source: $source")
+
+                    // Enable Hardware Automatic Gain Control (AGC) if supported by device
+                    try {
+                        if (android.media.audiofx.AutomaticGainControl.isAvailable()) {
+                            val agc = android.media.audiofx.AutomaticGainControl.create(recorder.audioSessionId)
+                            agc?.enabled = true
+                            android.util.Log.d("CallShieldStreamer", "Hardware AGC enabled")
+                        }
+                    } catch (fxEx: Exception) {
+                        android.util.Log.w("CallShieldStreamer", "Could not attach AGC: ${fxEx.message}")
+                    }
                     break
                 }
             } catch (e: Exception) {
@@ -112,36 +121,58 @@ class CallAudioStreamerService : Service() {
         try {
             audioRecord?.startRecording()
             isRecording = true
-            recordingThread = thread(start = true) {
-                val buffer = ByteArray(chunkSize)
+            recordingThread = thread(start = true, name = "CallShield-AudioRecord") {
+                val readBuffer = ByteArray(4096)
+                val chunkAccumulator = ByteArrayOutputStream()
                 var chunkId = 0
+
+                // 48000 bytes = 1.5 seconds at 16kHz 16-bit Mono (Responsive, continuous streaming)
+                val targetChunkBytes = 48000
+
                 while (isRecording) {
-                    val readBytes = audioRecord?.read(buffer, 0, chunkSize) ?: 0
+                    val readBytes = audioRecord?.read(readBuffer, 0, readBuffer.size) ?: -1
                     if (readBytes > 0) {
-                        chunkId += 1
-                        amplifyPcm(buffer, readBytes, 2.5f)
-                        sendChunkToBackend(buffer.copyOf(readBytes), chunkId)
+                        chunkAccumulator.write(readBuffer, 0, readBytes)
+
+                        if (chunkAccumulator.size() >= targetChunkBytes) {
+                            chunkId += 1
+                            val rawChunk = chunkAccumulator.toByteArray()
+                            chunkAccumulator.reset()
+
+                            // Boost speakerphone audio with dynamic 4.5x gain & limiter
+                            val amplifiedChunk = applyGainBoost(rawChunk, 4.5f)
+                            val rms = calculateRms(amplifiedChunk)
+
+                            sendChunkToBackend(amplifiedChunk, chunkId, rms)
+                        }
+                    } else if (readBytes < 0) {
+                        Thread.sleep(30)
                     }
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("CallShieldStreamer", "Recording failed: ${e.message}")
+            android.util.Log.e("CallShieldStreamer", "Recording start failed: ${e.message}")
             stopSelf()
         }
     }
 
-    private fun amplifyPcm(buffer: ByteArray, bytesRead: Int, multiplier: Float) {
+    private fun applyGainBoost(buffer: ByteArray, multiplier: Float): ByteArray {
+        val boosted = ByteArray(buffer.size)
         var i = 0
-        while (i < bytesRead - 1) {
-            val sample = (buffer[i].toInt() and 0xFF) or (buffer[i + 1].toInt() shl 8)
-            var shortSample = sample.toShort().toInt()
-            shortSample = (shortSample * multiplier).toInt()
-            if (shortSample > 32767) shortSample = 32767
-            if (shortSample < -32768) shortSample = -32768
-            buffer[i] = (shortSample and 0xFF).toByte()
-            buffer[i + 1] = ((shortSample shr 8) and 0xFF).toByte()
+        while (i + 1 < buffer.size) {
+            val low = buffer[i].toInt() and 0xFF
+            val high = buffer[i + 1].toInt() and 0xFF
+            var sample = ((high shl 8) or low).toShort().toInt()
+
+            sample = (sample * multiplier).toInt()
+            if (sample > 32767) sample = 32767
+            if (sample < -32768) sample = -32768
+
+            boosted[i] = (sample and 0xFF).toByte()
+            boosted[i + 1] = ((sample shr 8) and 0xFF).toByte()
             i += 2
         }
+        return boosted
     }
 
     private fun encryptAesGcm(plainData: ByteArray): Pair<String, String>? {
@@ -163,9 +194,8 @@ class CallAudioStreamerService : Service() {
         }
     }
 
-    private fun sendChunkToBackend(pcmData: ByteArray, chunkId: Int) {
+    private fun sendChunkToBackend(pcmData: ByteArray, chunkId: Int, rms: Double) {
         thread {
-            val rms = calculateRms(pcmData)
             try {
                 val url = URL("https://callshield-api.localtunnel.me/api/v1/predict-chunk")
                 val conn = url.openConnection() as HttpURLConnection
@@ -191,8 +221,8 @@ class CallAudioStreamerService : Service() {
                 conn.setRequestProperty("Content-Type", "application/json")
                 conn.setRequestProperty("Accept", "application/json")
                 conn.doOutput = true
-                conn.connectTimeout = 3000
-                conn.readTimeout = 5000
+                conn.connectTimeout = 1500
+                conn.readTimeout = 2500
 
                 val os: OutputStream = conn.outputStream
                 os.write(jsonBody.toByteArray(Charsets.UTF_8))
@@ -218,27 +248,32 @@ class CallAudioStreamerService : Service() {
                 }
                 conn.disconnect()
             } catch (e: Exception) {
-                android.util.Log.w("CallShieldStreamer", "Failed to post chunk #$chunkId to backend: ${e.message}. Using native offline fallback.")
+                // Instantly emit offline DSP fallback without locking or freezing
                 emitFallbackChunk(chunkId, rms, pcmData)
             }
         }
     }
 
     private fun emitFallbackChunk(chunkId: Int, rms: Double, pcmData: ByteArray? = null) {
-        val isQuiet = rms < 0.000001
-        var prob = 0.0
+        // Only classify as quiet if it's absolute digital silence
+        val isQuiet = rms < 0.00000001
+        var prob = 0.05
 
-        if (!isQuiet && pcmData != null && pcmData.size > 2) {
+        if (!isQuiet && pcmData != null && pcmData.size > 4) {
             // Dynamic Acoustic Signal Analysis: Calculate Zero Crossing Rate (ZCR) & Energy Variance
             var zeroCrossings = 0
             var energySum = 0.0
             val numShorts = pcmData.size / 2
 
             for (i in 0 until pcmData.size - 3 step 2) {
-                val s1 = (pcmData[i].toInt() and 0xFF) or (pcmData[i + 1].toInt() shl 8)
-                val s2 = (pcmData[i + 2].toInt() and 0xFF) or (pcmData[i + 3].toInt() shl 8)
-                val short1 = s1.toShort().toInt()
-                val short2 = s2.toShort().toInt()
+                val low1 = pcmData[i].toInt() and 0xFF
+                val high1 = pcmData[i + 1].toInt() and 0xFF
+                val short1 = ((high1 shl 8) or low1).toShort().toInt()
+
+                val low2 = pcmData[i + 2].toInt() and 0xFF
+                val high2 = pcmData[i + 3].toInt() and 0xFF
+                val short2 = ((high2 shl 8) or low2).toShort().toInt()
+
                 if ((short1 >= 0 && short2 < 0) || (short1 < 0 && short2 >= 0)) {
                     zeroCrossings++
                 }
@@ -248,8 +283,10 @@ class CallAudioStreamerService : Service() {
             val avgEnergy = energySum / Math.max(1, numShorts)
             var varianceSum = 0.0
             for (i in 0 until pcmData.size - 1 step 2) {
-                val s = (pcmData[i].toInt() and 0xFF) or (pcmData[i + 1].toInt() shl 8)
-                val diff = Math.abs(s.toShort().toInt()) - avgEnergy
+                val low = pcmData[i].toInt() and 0xFF
+                val high = pcmData[i + 1].toInt() and 0xFF
+                val s = ((high shl 8) or low).toShort().toInt()
+                val diff = Math.abs(s) - avgEnergy
                 varianceSum += diff * diff
             }
 
@@ -259,8 +296,6 @@ class CallAudioStreamerService : Service() {
             // Dynamic acoustic model: Synthetic AI voices exhibit unnaturally smooth spectral variance and high pitch regularity
             val syntheticIndex = (zcr * 2.5 + (1.0 / (variance + 1.0)) * 50.0) % 1.0
             prob = Math.min(0.98, Math.max(0.02, (syntheticIndex * 100).toInt() / 100.0))
-        } else if (!isQuiet) {
-            prob = 0.05
         }
 
         val isAi = prob >= 0.70
@@ -318,7 +353,9 @@ class CallAudioStreamerService : Service() {
         var samples = 0
         var i = 0
         while (i + 1 < pcmData.size) {
-            val sample = ((pcmData[i + 1].toInt() shl 8) or (pcmData[i].toInt() and 0xff)).toShort().toDouble() / 32768.0
+            val low = pcmData[i].toInt() and 0xFF
+            val high = pcmData[i + 1].toInt() and 0xFF
+            val sample = ((high shl 8) or low).toShort().toDouble() / 32768.0
             sumSquares += sample * sample
             samples += 1
             i += 2
