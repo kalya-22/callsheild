@@ -15,6 +15,8 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
+set "PYTHONPATH=%~dp0;%~dp0backend"
+
 echo [+] Starting FastAPI Backend on 0.0.0.0:8000 ...
 echo [+] Your Mobile Phone on the same Wi-Fi will connect automatically!
 echo.

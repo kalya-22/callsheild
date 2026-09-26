@@ -9,5 +9,6 @@ Write-Host "`n[+] Local IP Address: http://$($localIp):8000" -ForegroundColor Gr
 Write-Host "[+] Local Endpoint:  http://$($localIp):8000/api/v1" -ForegroundColor Green
 Write-Host "[+] Mobile devices on the same Wi-Fi will connect to this server automatically!`n" -ForegroundColor Yellow
 
+$env:PYTHONPATH = "$PSScriptRoot;$PSScriptRoot\backend"
 Set-Location -Path "$PSScriptRoot\backend"
 & "$PSScriptRoot\.venv\Scripts\python.exe" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
