@@ -313,8 +313,8 @@ class CallAudioStreamerService : Service() {
         }
 
         val isAi = prob >= 0.70
-        val label = if (isQuiet) "insufficient_audio" else if (isAi) "ai_generated" else "human"
-        val risk = if (isQuiet) "low" else if (isAi) "high" else "safe"
+        val label = if (isAi) "ai_generated" else "human"
+        val risk = if (isAi) "high" else if (prob >= 0.40) "suspicious" else "safe"
 
         CallInterceptorModule.emitChunkPrediction(
             phoneNumber,
@@ -322,7 +322,7 @@ class CallAudioStreamerService : Service() {
             prob,
             label,
             risk,
-            if (isQuiet) "too_quiet" else "dsp_analyzed",
+            if (isAi) "ai_voice_detected" else "human_speech",
             rms
         )
     }

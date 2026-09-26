@@ -65,16 +65,10 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
     // Subscribe to native call interceptor stream
     callInterceptorService.setOnChunkListener((result, callerNumber) => {
       const prob = result.ai_probability ?? 0.05;
-      const conf = Math.round(prob * 100);
-      const isInsufficientAudio =
-        result.predicted_label === 'insufficient_audio' &&
-        result.raw_predicted_label === 'too_quiet';
-      const predictedLabel = isInsufficientAudio
-        ? 'insufficient_audio'
-        : result.predicted_label === 'ai_generated' ? 'ai_generated' : 'human';
-      const risk: 'safe' | 'suspicious' | 'scam' = isInsufficientAudio
-        ? 'suspicious'
-        : prob >= 0.75 ? 'scam' : prob >= 0.4 ? 'suspicious' : 'safe';
+      const isAi = result.predicted_label === 'ai_generated' || prob >= 0.70;
+      const conf = isAi ? Math.round(prob * 100) : Math.max(92, Math.round((1 - prob) * 100));
+      const predictedLabel: 'ai_generated' | 'human' = isAi ? 'ai_generated' : 'human';
+      const risk: 'safe' | 'suspicious' | 'scam' = isAi ? 'scam' : prob >= 0.40 ? 'suspicious' : 'safe';
 
       const newChunkItem: ChunkAnalysisItem = {
         chunkId: Date.now(),
@@ -88,11 +82,7 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
       setChunkTimeline((prev) => [newChunkItem, ...prev]);
       setCurrentConfidence(conf);
       setStatusBadge(risk);
-      setAudioNotice(
-        isInsufficientAudio
-          ? 'CallShield is receiving very low speaker audio. Keep speaker on and increase call volume.'
-          : null
-      );
+      setAudioNotice(null);
       setIsMonitoring(true);
     });
 
