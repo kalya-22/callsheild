@@ -108,21 +108,21 @@ export function LiveCallReportModal({ visible, reportData, phoneNumber, onClose 
             </Text>
           </GlassCard>
 
-          {/* Circular Risk Score Meter */}
+          {/* Circular Risk / Authenticity Score Meter */}
           <GlassCard bright style={styles.gaugeCard}>
             <CircularGauge
               value={reportData.overallRiskScore}
               size={140}
               color={riskColor}
               label={`${reportData.overallRiskScore}%`}
-              sublabel="AI Scam Risk Score"
+              sublabel={isScam ? 'AI Scam Risk Score' : 'Human Voice Authenticity'}
             />
 
             {/* Metrics Snapshot Grid */}
             <View style={styles.metricsGrid}>
               <View style={styles.metricItem}>
                 <Text style={styles.metricVal}>{reportData.confidencePercent}%</Text>
-                <Text style={styles.metricLabel}>Confidence %</Text>
+                <Text style={styles.metricLabel}>{isScam ? 'AI Risk' : 'Authenticity'}</Text>
               </View>
 
               <View style={styles.metricItem}>

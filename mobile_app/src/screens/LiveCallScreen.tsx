@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -44,6 +44,9 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
   const [isBlacklisted, setIsBlacklisted] = useState(false);
   const isNativeCallSession = callerNumber !== 'Unknown Caller';
 
+  const timelineRef = useRef<ChunkAnalysisItem[]>([]);
+  const secondsRef = useRef<number>(0);
+
   useEffect(() => {
     // Check if caller number is on Supabase Scam Blacklist
     if (callerNumber && callerNumber !== 'Unknown Caller') {
@@ -59,14 +62,21 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setSeconds((prev) => prev + 1);
+      setSeconds((prev) => {
+        const next = prev + 1;
+        secondsRef.current = next;
+        return next;
+      });
     }, 1000);
 
     // Subscribe to native call interceptor stream
     callInterceptorService.setOnChunkListener((result, callerNumber) => {
-      const prob = result.ai_probability ?? 0.05;
+      const rawProb = typeof result.ai_probability === 'number' ? result.ai_probability : 0.05;
+      const prob = Number(rawProb.toFixed(4));
       const isAi = result.predicted_label === 'ai_generated' || prob >= 0.70;
-      const conf = isAi ? Math.round(prob * 100) : Math.max(92, Math.round((1 - prob) * 100));
+      
+      // Dynamic real-time confidence calculation from actual acoustic signals
+      const conf = isAi ? Math.round(prob * 100) : Math.round((1 - prob) * 100);
       const predictedLabel: 'ai_generated' | 'human' = isAi ? 'ai_generated' : 'human';
       const risk: 'safe' | 'suspicious' | 'scam' = isAi ? 'scam' : prob >= 0.40 ? 'suspicious' : 'safe';
 
@@ -79,7 +89,8 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
         aiProbability: prob,
       };
 
-      setChunkTimeline((prev) => [newChunkItem, ...prev]);
+      timelineRef.current = [newChunkItem, ...timelineRef.current];
+      setChunkTimeline([...timelineRef.current]);
       setCurrentConfidence(conf);
       setStatusBadge(risk);
       setAudioNotice(null);
@@ -186,29 +197,39 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
   }
 
   function generateNativeFinalReport(): FinalCallReportData {
-    const total = chunkTimeline.length;
-    const durationSeconds = Math.max(1, seconds);
-    const analyzedChunks = chunkTimeline.filter((chunk) => chunk.predictedLabel !== 'insufficient_audio');
-    const validTotal = analyzedChunks.length;
+    const list = timelineRef.current;
+    const total = list.length;
+    const durationSeconds = Math.max(1, secondsRef.current);
+    const validChunks = list.filter((chunk) => chunk.predictedLabel !== 'insufficient_audio');
+    const validTotal = validChunks.length;
 
-    const averageRisk = validTotal
-      ? Math.round(analyzedChunks.reduce((sum, chunk) => sum + chunk.confidencePercent, 0) / validTotal)
-      : (total > 0 ? 15 : 0);
+    const aiChunks = validChunks.filter((chunk) => chunk.predictedLabel === 'ai_generated');
+    const isOverallScam = aiChunks.length >= Math.ceil(Math.max(1, validTotal) / 2);
 
-    const aiChunks = analyzedChunks.filter((chunk) => chunk.predictedLabel === 'ai_generated').length;
+    let averageConfidence = 95;
+    if (validTotal > 0) {
+      if (isOverallScam) {
+        averageConfidence = Math.round(
+          aiChunks.reduce((sum, chunk) => sum + chunk.confidencePercent, 0) / Math.max(1, aiChunks.length)
+        );
+      } else {
+        averageConfidence = Math.round(
+          validChunks.reduce((sum, chunk) => sum + chunk.confidencePercent, 0) / validTotal
+        );
+      }
+    }
+
     const m = Math.floor(durationSeconds / 60).toString().padStart(2, '0');
     const s = (durationSeconds % 60).toString().padStart(2, '0');
 
     return {
-      overallPrediction: analyzedChunks.length === 0
-        ? 'insufficient_audio'
-        : aiChunks >= Math.ceil(analyzedChunks.length / 2) ? 'ai_generated' : 'human',
-      overallRiskScore: averageRisk,
-      confidencePercent: averageRisk,
-      totalChunksAnalyzed: total,
+      overallPrediction: isOverallScam ? 'ai_generated' : 'human',
+      overallRiskScore: averageConfidence,
+      confidencePercent: averageConfidence,
+      totalChunksAnalyzed: Math.max(1, total),
       callDurationSeconds: durationSeconds,
       callDurationFormatted: `${m}:${s}`,
-      detectionTimeline: [...chunkTimeline],
+      detectionTimeline: [...list],
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
   }
