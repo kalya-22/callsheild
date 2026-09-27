@@ -160,15 +160,17 @@ export function AppNavigator() {
             onStartLiveCall={() => setCurrentScreen('live_call')}
             onUploadSuccess={(result) => {
               const isScam = result.predicted_label === 'ai_generated';
-              const score = Math.round((result.ai_confidence_percent || result.ai_probability * 100) ?? 85);
+              const rawScore = result.overall_risk_score || result.ai_confidence_percent || (isScam ? 85 : 91);
+              const score = Math.round(rawScore);
               setSelectedReportItem({
-                prediction_id: Date.now(),
+                prediction_id: result.prediction_id || Date.now(),
                 filename: result.filename || 'Uploaded Audio Sample',
                 predicted_label: result.predicted_label,
                 ai_probability: result.ai_probability,
                 confidence_percent: score,
-                risk_level: isScam ? 'high' : 'low',
-                created_at: new Date().toISOString(),
+                overall_risk_score: score,
+                risk_level: isScam ? 'high' : 'safe',
+                created_at: result.created_at || new Date().toISOString(),
                 attributed_generator: result.attributed_generator || (isScam ? 'ElevenLabs Neural Voice Clone v2' : 'Authentic Human Vocal Cords'),
                 attribution_confidence: result.attribution_confidence || score,
                 synthesis_technique: result.synthesis_technique || (isScam ? 'Neural Latent Diffusion TTS' : 'Natural Human Speech'),

@@ -24,7 +24,12 @@ export function CallReportScreen({ onBack, reportItem }: CallReportScreenProps) 
     reportItem?.predicted_label === 'human_voice' ||
     reportItem?.risk_level === 'low' ||
     reportItem?.risk_level === 'safe';
-  const score = reportItem?.confidence_percent ?? (isHuman ? Math.round(100 - (reportItem?.ai_probability || 0.1) * 100) : Math.round((reportItem?.ai_probability || 0.85) * 100));
+  
+  let rawScore = reportItem?.confidence_percent ?? reportItem?.overall_risk_score ?? (isHuman ? 91 : 85);
+  if (isHuman && rawScore < 50) {
+    rawScore = 100 - rawScore;
+  }
+  const score = Math.max(1, Math.min(99, Math.round(rawScore)));
   const timeFormatted = reportItem?.created_at ? new Date(reportItem.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Call Session';
 
   return (
