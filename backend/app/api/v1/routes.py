@@ -112,18 +112,19 @@ async def predict_audio_chunk(
                 finally:
                     temp_path.unlink(missing_ok=True)
 
-        # Fallback default chunk response if audio payload is empty
+        # Fallback response if audio payload is empty or unparseable
         return {
             "chunk_id": "live_chunk_1",
-            "predicted_label": "human",
-            "ai_probability": 0.15,
-            "ai_confidence_percent": 15.0,
-            "risk_level": "low",
+            "predicted_label": "insufficient_audio",
+            "ai_probability": 0.0,
+            "ai_confidence_percent": 0.0,
+            "risk_level": "safe",
             "warning": False,
             "chunk_count": 1,
-            "current_chunk_risk": 0.15,
-            "current_chunk_risk_percent": 15.0,
-            "final_call_verdict": "human",
+            "current_chunk_risk": 0.0,
+            "current_chunk_risk_percent": 0.0,
+            "final_call_verdict": "insufficient_audio",
+            "audio_rms": 0.0,
         }
     except HTTPException:
         raise
