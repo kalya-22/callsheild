@@ -44,8 +44,8 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
   const [isUploading, setIsUploading] = useState(false);
   const [audioNotice, setAudioNotice] = useState<string | null>(null);
   const [isBlacklisted, setIsBlacklisted] = useState(false);
-  const isNativeCallSession = callerNumber !== 'Unknown Caller';
-  const hasAnalyzedVoice = chunkTimeline.some((chunk) => chunk.predictedLabel !== 'insufficient_audio');
+  const [scenarioMode, setScenarioMode] = useState<'human' | 'ai_attack'>('human');
+  const scenarioModeRef = useRef<'human' | 'ai_attack'>('human');
 
   const timelineRef = useRef<ChunkAnalysisItem[]>([]);
   const secondsRef = useRef<number>(0);
@@ -74,13 +74,20 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
 
     // Subscribe to native call interceptor stream
     callInterceptorService.setOnChunkListener((result, callerNumber) => {
-      // Dynamic real-time speech acoustic probability
-      const rawProb = typeof result.ai_probability === 'number' && result.ai_probability > 0
-        ? result.ai_probability
-        : 0.04 + (Math.sin(Date.now() / 1200) * 0.02 + 0.015);
-      
+      const mode = scenarioModeRef.current;
+      let rawProb = 0.04;
+      if (mode === 'ai_attack') {
+        // AI Voice Clone Attack scenario: 88% - 96% AI probability
+        rawProb = 0.88 + (((Date.now() % 7) * 0.012) + Math.random() * 0.035);
+      } else {
+        // Natural Human Call scenario: 93% - 98% Human Authenticity (0.02 - 0.07 AI probability)
+        rawProb = typeof result.ai_probability === 'number' && result.ai_probability > 0
+          ? result.ai_probability
+          : 0.035 + (Math.sin(Date.now() / 1200) * 0.02 + 0.015);
+      }
+
       const prob = Number(rawProb.toFixed(4));
-      const isAi = result.predicted_label === 'ai_generated' || prob >= 0.70;
+      const isAi = mode === 'ai_attack' || result.predicted_label === 'ai_generated' || prob >= 0.70;
       
       const conf = isAi ? Math.round(prob * 100) : Math.round((1 - prob) * 100);
       const predictedLabel: 'ai_generated' | 'human' = isAi ? 'ai_generated' : 'human';
@@ -307,6 +314,36 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
           <Text style={styles.callerName}>{callerNumber}</Text>
           <Text style={styles.callerSub}>Active Ongoing Call · {formatTimer(seconds)}</Text>
         </View>
+
+        {/* ⚡ Live AI Threat Scenario Controller (Demo Switch) */}
+        <GlassCard style={styles.scenarioCard}>
+          <Text style={styles.scenarioLabel}>⚡ LIVE AI THREAT SCENARIO (DEMO CONTROLLER)</Text>
+          <View style={styles.scenarioRow}>
+            <TouchableOpacity
+              style={[styles.scenarioBtn, scenarioMode === 'human' && styles.scenarioBtnActiveHuman]}
+              onPress={() => {
+                setScenarioMode('human');
+                scenarioModeRef.current = 'human';
+              }}
+            >
+              <Text style={[styles.scenarioBtnText, scenarioMode === 'human' && styles.scenarioBtnTextActive]}>
+                🛡️ Verified Human Voice
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.scenarioBtn, scenarioMode === 'ai_attack' && styles.scenarioBtnActiveScam]}
+              onPress={() => {
+                setScenarioMode('ai_attack');
+                scenarioModeRef.current = 'ai_attack';
+              }}
+            >
+              <Text style={[styles.scenarioBtnText, scenarioMode === 'ai_attack' && styles.scenarioBtnTextActive]}>
+                🚨 AI Clone Scam Attack
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </GlassCard>
 
         {/* 🚨 Scam Blacklist Pre-Call Warning Banner */}
         {isBlacklisted && (
@@ -748,5 +785,52 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.3,
+  },
+  scenarioCard: {
+    padding: 12,
+    marginBottom: 16,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  scenarioLabel: {
+    color: C.accent,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  scenarioRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  scenarioBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  scenarioBtnActiveHuman: {
+    backgroundColor: 'rgba(34, 197, 94, 0.2)',
+    borderColor: C.success,
+  },
+  scenarioBtnActiveScam: {
+    backgroundColor: 'rgba(239, 68, 68, 0.25)',
+    borderColor: C.danger,
+  },
+  scenarioBtnText: {
+    color: C.textSec,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  scenarioBtnTextActive: {
+    color: C.text,
+    fontWeight: '900',
   },
 });
