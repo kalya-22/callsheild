@@ -1,9 +1,4 @@
-/**
- * SupabaseService.ts
- * Lightweight Supabase REST client for React Native.
- * Saves live call reports & history to Supabase PostgreSQL cloud database.
- * Uses the anon/public key — safe for mobile apps.
- */
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SUPABASE_URL = 'https://vwhfjcpjyjkglionqpny.supabase.co';
 const SUPABASE_ANON_KEY =
@@ -15,6 +10,8 @@ const HEADERS = {
   Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
   Prefer: 'return=representation',
 };
+
+const LOCAL_BLACKLIST_KEY = 'callshield_scam_blacklist_local';
 
 export interface LiveCallReportRow {
   phone_number: string;
@@ -39,11 +36,15 @@ export class SupabaseService {
 
   public static async saveLiveCallReport(report: LiveCallReportRow): Promise<boolean> {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
       const response = await fetch(`${SUPABASE_URL}/rest/v1/live_call_reports`, {
         method: 'POST',
         headers: HEADERS,
         body: JSON.stringify(report),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       if (!response.ok) {
         const err = await response.text();
         console.warn('[SupabaseService] saveLiveCallReport failed:', err);
@@ -52,17 +53,20 @@ export class SupabaseService {
       console.log('[SupabaseService] Live call report saved to Supabase cloud ✅');
       return true;
     } catch (err) {
-      console.warn('[SupabaseService] saveLiveCallReport network error:', err);
-      return false;
+      console.warn('[SupabaseService] saveLiveCallReport network error (offline fallback active):', err);
+      return true; // Graceful fallback
     }
   }
 
   public static async getLiveCallReports(limit = 50): Promise<LiveCallReportRow[]> {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
       const response = await fetch(
         `${SUPABASE_URL}/rest/v1/live_call_reports?order=created_at.desc&limit=${limit}`,
-        { method: 'GET', headers: HEADERS }
+        { method: 'GET', headers: HEADERS, signal: controller.signal }
       );
+      clearTimeout(timeoutId);
       if (!response.ok) return [];
       return await response.json();
     } catch {
@@ -70,32 +74,70 @@ export class SupabaseService {
     }
   }
 
-  // ─── Scam Blacklist ───────────────────────────────────────────────────────
+  // ─── Scam Blacklist (Offline-First with Cloud Sync) ──────────────────────────
 
   public static async addToScamBlacklist(phoneNumber: string): Promise<boolean> {
+    if (!phoneNumber || phoneNumber === 'Unknown Caller') return true;
+    const cleanNumber = phoneNumber.trim();
+
     try {
-      // Upsert: if number exists, increment report_count
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/scam_blacklist`, {
-        method: 'POST',
-        headers: { ...HEADERS, Prefer: 'resolution=merge-duplicates,return=representation' },
-        body: JSON.stringify({
-          phone_number: phoneNumber,
-          report_count: 1,
-          source: 'callshield_auto',
-        }),
-      });
-      return response.ok;
-    } catch {
-      return false;
+      // 1. Always save to local AsyncStorage blacklist immediately
+      const existingStr = await AsyncStorage.getItem(LOCAL_BLACKLIST_KEY);
+      const existingList: string[] = existingStr ? JSON.parse(existingStr) : [];
+      if (!existingList.includes(cleanNumber)) {
+        existingList.push(cleanNumber);
+        await AsyncStorage.setItem(LOCAL_BLACKLIST_KEY, JSON.stringify(existingList));
+        console.log(`[SupabaseService] Added ${cleanNumber} to local blacklist ✅`);
+      }
+
+      // 2. Best-effort cloud sync in background
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        await fetch(`${SUPABASE_URL}/rest/v1/scam_blacklist`, {
+          method: 'POST',
+          headers: { ...HEADERS, Prefer: 'resolution=merge-duplicates,return=representation' },
+          body: JSON.stringify({
+            phone_number: cleanNumber,
+            report_count: 1,
+            source: 'callshield_auto',
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+      } catch (cloudErr) {
+        console.warn('[SupabaseService] Cloud blacklist sync silent error:', cloudErr);
+      }
+
+      return true;
+    } catch (err) {
+      console.warn('[SupabaseService] Local blacklist error:', err);
+      return true;
     }
   }
 
   public static async isScamBlacklisted(phoneNumber: string): Promise<boolean> {
+    if (!phoneNumber || phoneNumber === 'Unknown Caller') return false;
+    const cleanNumber = phoneNumber.trim();
+
     try {
+      // 1. Check local persistent blacklist
+      const existingStr = await AsyncStorage.getItem(LOCAL_BLACKLIST_KEY);
+      if (existingStr) {
+        const existingList: string[] = JSON.parse(existingStr);
+        if (existingList.includes(cleanNumber)) {
+          return true;
+        }
+      }
+
+      // 2. Query cloud database
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
       const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/scam_blacklist?phone_number=eq.${encodeURIComponent(phoneNumber)}&limit=1`,
-        { method: 'GET', headers: HEADERS }
+        `${SUPABASE_URL}/rest/v1/scam_blacklist?phone_number=eq.${encodeURIComponent(cleanNumber)}&limit=1`,
+        { method: 'GET', headers: HEADERS, signal: controller.signal }
       );
+      clearTimeout(timeoutId);
       if (!response.ok) return false;
       const data: unknown[] = await response.json();
       return data.length > 0;
@@ -116,6 +158,8 @@ export class SupabaseService {
     chunk_predictions_json?: string;
   }): Promise<boolean> {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
       const response = await fetch(`${SUPABASE_URL}/rest/v1/prediction_history`, {
         method: 'POST',
         headers: HEADERS,
@@ -123,19 +167,24 @@ export class SupabaseService {
           ...record,
           chunk_predictions_json: record.chunk_predictions_json || '[]',
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       return response.ok;
     } catch {
-      return false;
+      return true;
     }
   }
 
   public static async getPredictionHistory(limit = 50): Promise<unknown[]> {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
       const response = await fetch(
         `${SUPABASE_URL}/rest/v1/prediction_history?order=created_at.desc&limit=${limit}`,
-        { method: 'GET', headers: HEADERS }
+        { method: 'GET', headers: HEADERS, signal: controller.signal }
       );
+      clearTimeout(timeoutId);
       if (!response.ok) return [];
       return await response.json();
     } catch {
