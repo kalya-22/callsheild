@@ -67,9 +67,14 @@ def backend_status() -> dict[str, object]:
 
 
 @router.post("/predict", response_model=PredictionResponse)
-async def predict_audio(file: UploadFile = File(...)) -> dict[str, object]:
+async def predict_audio(
+    file: UploadFile = File(...),
+    source: str = Form(""),
+    is_drive: str = Form(""),
+) -> dict[str, object]:
     try:
-        return await predict_uploaded_audio(file)
+        drive_flag = is_drive.lower() == "true" or source.lower() == "drive"
+        return await predict_uploaded_audio(file, is_drive=drive_flag)
     except HTTPException:
         raise
     except ValueError as exc:

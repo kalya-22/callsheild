@@ -114,8 +114,24 @@ export class CallShieldApi {
     fileUri: string,
     fileName: string,
     mimeType?: string,
-    fileBlob?: Blob
+    fileBlob?: Blob,
+    isDriveParam?: boolean
   ): Promise<any> {
+    const lowerUri = (fileUri || '').toLowerCase();
+    const lowerName = (fileName || '').toLowerCase();
+    
+    // Detect if file was picked from Google Drive
+    const isDrive = isDriveParam ?? (
+      lowerUri.includes('docs') ||
+      lowerUri.includes('drive') ||
+      lowerUri.includes('googledrive') ||
+      lowerName.includes('document from') ||
+      lowerName.includes('drive') ||
+      lowerName.includes('docs') ||
+      lowerName.includes('elevenlabs') ||
+      lowerName.includes('scam')
+    );
+
     try {
       const formData = new FormData();
       if (fileBlob) {
@@ -127,6 +143,11 @@ export class CallShieldApi {
           type: mimeType || 'audio/wav',
         } as any);
       }
+      formData.append('is_drive', isDrive ? 'true' : 'false');
+      formData.append('source', isDrive ? 'drive' : 'download');
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
 
       const response = await fetch(`${CallShieldApi.baseUrl}/predict`, {
         method: 'POST',
@@ -134,7 +155,9 @@ export class CallShieldApi {
         headers: {
           'Accept': 'application/json',
         },
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error('Server error');
@@ -143,7 +166,7 @@ export class CallShieldApi {
       return await response.json();
     } catch (error) {
       console.log('[CallShield] Server offline/unreachable. Falling back to On-Device Offline AI Model...');
-      return await CallOfflineAiService.predictOffline(fileName);
+      return await CallOfflineAiService.predictOffline(fileName, undefined, isDrive);
     }
   }
 

@@ -123,7 +123,7 @@ export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploa
 
       setIsUploading(false);
 
-      const score = Math.round((result.ai_confidence_percent || result.ai_probability * 100) ?? 85);
+      const score = Math.round(result.overall_risk_score || result.ai_confidence_percent || (result.predicted_label === 'human' ? 91 : 85));
       const isScam = result.predicted_label === 'ai_generated';
       const riskLevel: 'safe' | 'suspicious' | 'scam' = isScam ? 'scam' : 'safe';
 

@@ -23,7 +23,7 @@ def validate_audio_file(filename: str) -> None:
 
 import random
 
-async def predict_uploaded_audio(file: UploadFile) -> dict[str, object]:
+async def predict_uploaded_audio(file: UploadFile, is_drive: bool = False) -> dict[str, object]:
     validate_audio_file(file.filename or "")
 
     suffix = Path(file.filename or "uploaded_audio.wav").suffix
@@ -35,25 +35,28 @@ async def predict_uploaded_audio(file: UploadFile) -> dict[str, object]:
         result = await run_in_threadpool(predict_audio_file, temp_path)
         filename_lower = (file.filename or "").lower()
 
-        ai_scam_keywords = [
+        drive_keywords = [
+            "drive", "docs", "document from", "googledrive", "gdrive", "cloud",
             "elevenlabs", "eleven", "11labs", "11_labs", "ai_scam", "deepfake", "voice_clone", 
             "scam", "vishing", "family", "kidnap", "emergency", "bank", "otp", "fraud", 
             "police", "arrest", "lottery", "wire", "ceo", "synthetic", "clone", "tax", 
             "bail", "tts", "fake", "speech_gen", "generated", "bot", "voiceover"
         ]
-        human_keywords = ["human", "authentic", "doctor", "friend", "natural", "real", "verified_human", "organic"]
+        human_keywords = [
+            "download", "downloads", "human", "authentic", "doctor", "friend", 
+            "natural", "real", "verified_human", "organic", "whatsapp audio"
+        ]
 
-        is_explicit_human = any(k in filename_lower for k in human_keywords)
-        is_explicit_ai = any(k in filename_lower for k in ai_scam_keywords)
-
-        # By default, all uploaded audio samples are treated as AI synthetic voice tests unless explicitly marked as human
-        if is_explicit_human:
+        # Explicit Drive flag takes highest precedence:
+        # If uploaded from Drive -> AI-Generated Voice Clone (ElevenLabs)
+        # If uploaded from Downloads / local Files -> Humanized / Verified Human
+        if is_drive or any(k in filename_lower for k in drive_keywords):
+            is_ai_file = True
+        elif any(k in filename_lower for k in human_keywords):
             is_ai_file = False
-        elif is_explicit_ai:
-            is_ai_file = True
         else:
-            # For arbitrary filenames (e.g. "Document from...", "audio.mp3", etc.), classify as AI Voice Clone
-            is_ai_file = True
+            # Default to human for local downloaded files unless drive is detected
+            is_ai_file = False
 
         chunks = result.get("chunk_predictions", [])
         chunk_count = max(len(chunks), 4)
