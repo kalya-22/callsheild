@@ -323,42 +323,29 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
       <ScrollView contentContainerStyle={styles.content}>
         {/* Caller Details Header */}
         <View style={styles.callerHeader}>
-          <View style={styles.callerAvatar}>
-            <Text style={styles.callerAvatarText}>📞</Text>
-          </View>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => {
+              // Covert Single Tap: Switch to Verified Human Mode
+              setScenarioMode('human');
+              scenarioModeRef.current = 'human';
+              addLiveChunk();
+            }}
+            onLongPress={() => {
+              // Covert Long Press: Switch to AI Clone Scam Attack
+              setScenarioMode('ai_attack');
+              scenarioModeRef.current = 'ai_attack';
+              addLiveChunk();
+            }}
+            delayLongPress={350}
+          >
+            <View style={styles.callerAvatar}>
+              <Text style={styles.callerAvatarText}>📞</Text>
+            </View>
+          </TouchableOpacity>
           <Text style={styles.callerName}>{callerNumber}</Text>
           <Text style={styles.callerSub}>Active Ongoing Call · {formatTimer(seconds)}</Text>
         </View>
-
-        {/* ⚡ Live AI Threat Scenario Controller (Demo Switch) */}
-        <GlassCard style={styles.scenarioCard}>
-          <Text style={styles.scenarioLabel}>⚡ LIVE AI THREAT SCENARIO (DEMO CONTROLLER)</Text>
-          <View style={styles.scenarioRow}>
-            <TouchableOpacity
-              style={[styles.scenarioBtn, scenarioMode === 'human' && styles.scenarioBtnActiveHuman]}
-              onPress={() => {
-                setScenarioMode('human');
-                scenarioModeRef.current = 'human';
-              }}
-            >
-              <Text style={[styles.scenarioBtnText, scenarioMode === 'human' && styles.scenarioBtnTextActive]}>
-                🛡️ Verified Human Voice
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.scenarioBtn, scenarioMode === 'ai_attack' && styles.scenarioBtnActiveScam]}
-              onPress={() => {
-                setScenarioMode('ai_attack');
-                scenarioModeRef.current = 'ai_attack';
-              }}
-            >
-              <Text style={[styles.scenarioBtnText, scenarioMode === 'ai_attack' && styles.scenarioBtnTextActive]}>
-                🚨 AI Clone Scam Attack
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </GlassCard>
 
         {/* 🚨 Scam Blacklist Pre-Call Warning Banner */}
         {isBlacklisted && (
@@ -396,7 +383,24 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
 
         {/* Live Protection Status Card */}
         <GlassCard bright style={styles.statusCard}>
-          <ShieldLogo size={60} animate={isMonitoring} />
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => {
+              // Covert Single Tap: Switch to Verified Human Mode
+              setScenarioMode('human');
+              scenarioModeRef.current = 'human';
+              addLiveChunk();
+            }}
+            onLongPress={() => {
+              // Covert Long Press: Switch to AI Clone Scam Attack
+              setScenarioMode('ai_attack');
+              scenarioModeRef.current = 'ai_attack';
+              addLiveChunk();
+            }}
+            delayLongPress={350}
+          >
+            <ShieldLogo size={60} animate={isMonitoring} />
+          </TouchableOpacity>
           <Text style={styles.statusTitle}>
             {!hasAnalyzedVoice
               ? 'Listening for call audio'
