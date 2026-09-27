@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: callshield-api
+    runtime: docker
+    plan: free
+    region: oregon
+    envVars:
+      - key: SUPABASE_URL
+        value: https://vwhfjcpjyjkglionqpny.supabase.co
+      - key: SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ3aGZqY3BqeWprZ2xpb25xcG55Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4MDU5NjksImV4cCI6MjEwNTM4MTk2OX0.CXPtxsyoIRHGoNF8JuFJrob9k__jICFLddiU9hz2CIE
+      - key: PYTHONPATH
+        value: /app:/app/backend

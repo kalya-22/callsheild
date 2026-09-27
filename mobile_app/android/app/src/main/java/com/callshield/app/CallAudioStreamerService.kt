@@ -197,8 +197,9 @@ class CallAudioStreamerService : Service() {
     private fun sendChunkToBackend(pcmData: ByteArray, chunkId: Int, rms: Double) {
         thread {
             val endpoints = listOf(
-                "https://callshield-api.localtunnel.me/api/v1/predict-chunk",
+                "https://callshield-api.onrender.com/api/v1/predict-chunk",
                 "http://10.153.26.231:8000/api/v1/predict-chunk",
+                "https://callshield-api.localtunnel.me/api/v1/predict-chunk",
                 "http://10.0.2.2:8000/api/v1/predict-chunk"
             )
             var delivered = false

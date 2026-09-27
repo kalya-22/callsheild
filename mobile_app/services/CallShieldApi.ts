@@ -29,11 +29,12 @@ function getDynamicHostIp(): string {
 export class CallShieldApi {
   private static dynamicIp = getDynamicHostIp();
 
-  public static baseUrl: string = 'http://10.153.26.231:8000/api/v1';
+  public static baseUrl: string = 'https://callshield-api.onrender.com/api/v1';
 
   public static async getStatus(): Promise<any> {
     const candidates = [
       CallShieldApi.baseUrl,
+      'https://callshield-api.onrender.com/api/v1',
       'http://10.153.26.231:8000/api/v1',
       'https://callshield-api.localtunnel.me/api/v1',
       `http://${CallShieldApi.dynamicIp}:8000/api/v1`,
