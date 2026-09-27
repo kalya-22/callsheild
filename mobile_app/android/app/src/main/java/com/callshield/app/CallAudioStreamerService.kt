@@ -17,13 +17,21 @@ import java.io.ByteArrayOutputStream
 import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 class CallAudioStreamerService : Service() {
     private var isRecording = false
     private var audioRecord: AudioRecord? = null
+    private var echoCanceler: android.media.audiofx.AcousticEchoCanceler? = null
+    private var noiseSuppressor: android.media.audiofx.NoiseSuppressor? = null
+    private var automaticGainControl: android.media.audiofx.AutomaticGainControl? = null
     private var recordingThread: Thread? = null
     private var phoneNumber: String = "Unknown Caller"
+    private var apiBaseUrl: String = "https://callsheild.onrender.com/api/v1"
+    private val analysisExecutor = Executors.newSingleThreadExecutor()
+    private val analysisInFlight = AtomicBoolean(false)
 
     private val sampleRate = 16000
     private val channelConfig = AudioFormat.CHANNEL_IN_MONO
@@ -34,6 +42,15 @@ class CallAudioStreamerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         phoneNumber = CallInterceptorModule.resolveCallNumber(intent?.getStringExtra("phoneNumber"))
+        val configuredBaseUrl = intent?.getStringExtra("apiBaseUrl")?.trim()?.trimEnd('/')
+        if (!configuredBaseUrl.isNullOrBlank() &&
+            (configuredBaseUrl.startsWith("https://") || configuredBaseUrl.startsWith("http://"))) {
+            apiBaseUrl = if (configuredBaseUrl.endsWith("/api/v1", ignoreCase = true)) {
+                configuredBaseUrl
+            } else {
+                "$configuredBaseUrl/api/v1"
+            }
+        }
         startForegroundNotification(phoneNumber)
         startStreaming()
         return START_STICKY
@@ -72,7 +89,15 @@ class CallAudioStreamerService : Service() {
             .setOngoing(true)
             .build()
 
-        startForeground(101, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                101,
+                notification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            )
+        } else {
+            startForeground(101, notification)
+        }
     }
 
     private fun startStreaming() {
@@ -80,7 +105,7 @@ class CallAudioStreamerService : Service() {
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
         val bufferSize = maxOf(minBufferSize * 4, chunkSize * 2)
 
-        // Prioritize VOICE_COMMUNICATION & VOICE_RECOGNITION which are permitted during active telephony calls
+        // Android requires VOICE_COMMUNICATION for concurrent telephony audio routing
         val sources = intArrayOf(
             MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
@@ -95,11 +120,10 @@ class CallAudioStreamerService : Service() {
                     audioRecord = recorder
                     android.util.Log.d("CallShieldStreamer", "AudioRecord successfully initialized with source: $source")
 
-                    // Enable Hardware Automatic Gain Control (AGC) if supported by device
                     try {
                         if (android.media.audiofx.AutomaticGainControl.isAvailable()) {
-                            val agc = android.media.audiofx.AutomaticGainControl.create(recorder.audioSessionId)
-                            agc?.enabled = true
+                            automaticGainControl = android.media.audiofx.AutomaticGainControl.create(recorder.audioSessionId)
+                            automaticGainControl?.enabled = true
                             android.util.Log.d("CallShieldStreamer", "Hardware AGC enabled")
                         }
                     } catch (fxEx: Exception) {
@@ -114,6 +138,11 @@ class CallAudioStreamerService : Service() {
 
         if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
             android.util.Log.e("CallShieldStreamer", "Could not initialize any AudioRecord source.")
+            CallInterceptorModule.emitAnalysisError(
+                phoneNumber,
+                0,
+                "Android did not provide a usable microphone input. Check microphone permission and close other apps using the mic."
+            )
             stopSelf()
             return
         }
@@ -126,8 +155,7 @@ class CallAudioStreamerService : Service() {
                 val chunkAccumulator = ByteArrayOutputStream()
                 var chunkId = 0
 
-                // 48000 bytes = 1.5 seconds at 16kHz 16-bit Mono (Responsive, continuous streaming)
-                val targetChunkBytes = 48000
+                val targetChunkBytes = chunkSize
 
                 while (isRecording) {
                     val readBytes = audioRecord?.read(readBuffer, 0, readBuffer.size) ?: -1
@@ -139,10 +167,13 @@ class CallAudioStreamerService : Service() {
                             val rawChunk = chunkAccumulator.toByteArray()
                             chunkAccumulator.reset()
 
-                            // Boost speakerphone audio with dynamic 4.5x gain & limiter
+                            // Boost speakerphone audio with 4.5x gain & limiter
                             val amplifiedChunk = applyGainBoost(rawChunk, 4.5f)
                             val rms = calculateRms(amplifiedChunk)
-
+                            android.util.Log.i(
+                                "CallShieldStreamer",
+                                "Captured chunk #$chunkId: ${amplifiedChunk.size} bytes, microphone RMS=${"%.6f".format(java.util.Locale.US, rms)}"
+                            )
                             sendChunkToBackend(amplifiedChunk, chunkId, rms)
                         }
                     } else if (readBytes < 0) {
@@ -152,6 +183,11 @@ class CallAudioStreamerService : Service() {
             }
         } catch (e: Exception) {
             android.util.Log.e("CallShieldStreamer", "Recording start failed: ${e.message}")
+            CallInterceptorModule.emitAnalysisError(
+                phoneNumber,
+                0,
+                "Microphone capture could not start: ${e.message ?: "audio recorder error"}"
+            )
             stopSelf()
         }
     }
@@ -195,161 +231,80 @@ class CallAudioStreamerService : Service() {
     }
 
     private fun sendChunkToBackend(pcmData: ByteArray, chunkId: Int, rms: Double) {
-        thread {
-            val endpoints = listOf(
-                "https://callshield-api.onrender.com/api/v1/predict-chunk",
-                "http://10.153.26.231:8000/api/v1/predict-chunk",
-                "https://callshield-api.localtunnel.me/api/v1/predict-chunk",
-                "http://10.0.2.2:8000/api/v1/predict-chunk"
-            )
-            var delivered = false
+        if (!analysisInFlight.compareAndSet(false, true)) {
+            android.util.Log.w("CallShieldStreamer", "Skipping chunk #$chunkId: previous analysis is still running")
+            return
+        }
+        analysisExecutor.execute {
+            var conn: HttpURLConnection? = null
+            try {
+                val url = URL("$apiBaseUrl/predict-chunk")
+                val connection = url.openConnection() as HttpURLConnection
+                conn = connection
+                val wavData = buildWav(pcmData)
+                val fileName = "live_call_$chunkId.wav"
 
-            for (endpointUrl in endpoints) {
-                try {
-                    val url = URL(endpointUrl)
-                    val conn = url.openConnection() as HttpURLConnection
-                    val wavData = buildWav(pcmData)
-                    val fileName = "live_call_$chunkId.wav"
-
-                    val encPair = encryptAesGcm(wavData)
-                    val jsonBody = if (encPair != null) {
-                        JSONObject().apply {
-                            put("filename", fileName)
-                            put("encrypted_audio_base64", encPair.first)
-                            put("iv_base64", encPair.second)
-                        }.toString()
-                    } else {
-                        val rawBase64 = Base64.encodeToString(wavData, Base64.NO_WRAP)
-                        JSONObject().apply {
-                            put("filename", fileName)
-                            put("audio_base64", rawBase64)
-                        }.toString()
-                    }
-
-                    conn.requestMethod = "POST"
-                    conn.setRequestProperty("Content-Type", "application/json")
-                    conn.setRequestProperty("Accept", "application/json")
-                    conn.doOutput = true
-                    conn.connectTimeout = 1200
-                    conn.readTimeout = 2000
-
-                    val os: OutputStream = conn.outputStream
-                    os.write(jsonBody.toByteArray(Charsets.UTF_8))
-                    os.flush()
-                    os.close()
-
-                    val responseCode = conn.responseCode
-                    android.util.Log.d("CallShieldStreamer", "Chunk #$chunkId sent to $endpointUrl: $responseCode")
-                    if (responseCode in 200..299) {
-                        val responseText = conn.inputStream.bufferedReader().use { it.readText() }
-                        val json = JSONObject(responseText)
-                        CallInterceptorModule.emitChunkPrediction(
-                            phoneNumber,
-                            chunkId,
-                            json.optDouble("ai_probability", 0.0),
-                            json.optString("predicted_label", "human"),
-                            json.optString("risk_level", "safe"),
-                            json.optString("raw_predicted_label", "online_ai_classified"),
-                            json.optDouble("audio_rms", rms)
-                        )
-                        delivered = true
-                        conn.disconnect()
-                        break
-                    }
-                    conn.disconnect()
-                } catch (e: Exception) {
-                    // Try next endpoint in list
+                val encPair = encryptAesGcm(wavData)
+                val jsonBody = if (encPair != null) {
+                    JSONObject().apply {
+                        put("filename", fileName)
+                        put("encrypted_audio_base64", encPair.first)
+                        put("iv_base64", encPair.second)
+                    }.toString()
+                } else {
+                    val rawBase64 = Base64.encodeToString(wavData, Base64.NO_WRAP)
+                    JSONObject().apply {
+                        put("filename", fileName)
+                        put("audio_base64", rawBase64)
+                    }.toString()
                 }
+
+                connection.requestMethod = "POST"
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.setRequestProperty("Accept", "application/json")
+                connection.doOutput = true
+                connection.connectTimeout = 8000
+                connection.readTimeout = 30000
+
+                val os: OutputStream = connection.outputStream
+                os.write(jsonBody.toByteArray(Charsets.UTF_8))
+                os.flush()
+                os.close()
+
+                val responseCode = connection.responseCode
+                android.util.Log.d("CallShieldStreamer", "Chunk #$chunkId sent to $url: $responseCode")
+                if (responseCode in 200..299) {
+                    val responseText = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(responseText)
+                    CallInterceptorModule.emitChunkPrediction(
+                        phoneNumber,
+                        chunkId,
+                        json.optDouble("ai_probability", 0.0),
+                        json.optString("predicted_label", "human"),
+                        json.optString("risk_level", "safe"),
+                        json.optString("raw_predicted_label", "online_ai_classified"),
+                        json.optDouble("audio_rms", rms)
+                    )
+                } else {
+                    val detail = connection.errorStream?.bufferedReader()?.use { it.readText() }
+                    CallInterceptorModule.emitAnalysisError(
+                        phoneNumber,
+                        chunkId,
+                        "Audio analysis server returned HTTP $responseCode from $url${if (detail.isNullOrBlank()) "" else ": $detail"}"
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("CallShieldStreamer", "Chunk #$chunkId analysis request failed", e)
+                CallInterceptorModule.emitAnalysisError(
+                    phoneNumber,
+                    chunkId,
+                    "Could not reach audio analysis server: ${e.message ?: "network error"}"
+                )
+            } finally {
+                conn?.disconnect()
+                analysisInFlight.set(false)
             }
-
-            if (!delivered) {
-                // Instantly emit offline DSP fallback without locking or freezing
-                emitFallbackChunk(chunkId, rms, pcmData)
-            }
         }
-    }
-
-    private fun emitFallbackChunk(chunkId: Int, rms: Double, pcmData: ByteArray? = null) {
-        if (pcmData == null || pcmData.size < 100) {
-            CallInterceptorModule.emitChunkPrediction(
-                phoneNumber,
-                chunkId,
-                0.0,
-                "insufficient_audio",
-                "safe",
-                "insufficient_audio",
-                rms
-            )
-            return
-        }
-
-        var maxAbsSample = 0
-        var zeroCrossings = 0
-        var energySum = 0.0
-        val numShorts = pcmData.size / 2
-
-        for (i in 0 until pcmData.size - 3 step 2) {
-            val low1 = pcmData[i].toInt() and 0xFF
-            val high1 = pcmData[i + 1].toInt() and 0xFF
-            val short1 = ((high1 shl 8) or low1).toShort().toInt()
-
-            val low2 = pcmData[i + 2].toInt() and 0xFF
-            val high2 = pcmData[i + 3].toInt() and 0xFF
-            val short2 = ((high2 shl 8) or low2).toShort().toInt()
-
-            val absVal = Math.abs(short1)
-            if (absVal > maxAbsSample) maxAbsSample = absVal
-
-            if ((short1 >= 0 && short2 < 0) || (short1 < 0 && short2 >= 0)) {
-                zeroCrossings++
-            }
-            energySum += absVal
-        }
-
-        // Voice Activity Detection: If audio amplitude is in true silence floor (max amplitude < 50 or rms < 0.0001)
-        if (maxAbsSample < 50 || rms < 0.0001) {
-            CallInterceptorModule.emitChunkPrediction(
-                phoneNumber,
-                chunkId,
-                0.0,
-                "insufficient_audio",
-                "safe",
-                "insufficient_audio",
-                rms
-            )
-            return
-        }
-
-        val avgEnergy = energySum / Math.max(1, numShorts)
-        var varianceSum = 0.0
-        for (i in 0 until pcmData.size - 1 step 2) {
-            val low = pcmData[i].toInt() and 0xFF
-            val high = pcmData[i + 1].toInt() and 0xFF
-            val s = ((high shl 8) or low).toShort().toInt()
-            val diff = Math.abs(s) - avgEnergy
-            varianceSum += diff * diff
-        }
-
-        val variance = varianceSum / Math.max(1, numShorts)
-        val zcr = zeroCrossings.toDouble() / Math.max(1, numShorts)
-
-        // Dynamic acoustic model: Pitch shifts, breath variance & dynamic speech cadence produce authentic live scores
-        val dynamicScore = 0.03 + (zcr * 0.16) + ((avgEnergy % 47.0) / 1000.0)
-        val prob = Math.max(0.02, Math.min(0.98, Math.round(dynamicScore * 100.0) / 100.0))
-
-        val isAi = prob >= 0.70
-        val label = if (isAi) "ai_generated" else "human"
-        val risk = if (isAi) "high" else if (prob >= 0.40) "suspicious" else "safe"
-
-        CallInterceptorModule.emitChunkPrediction(
-            phoneNumber,
-            chunkId,
-            prob,
-            label,
-            risk,
-            if (isAi) "ai_voice_detected" else "human_speech",
-            rms
-        )
     }
 
     private fun buildWav(pcmData: ByteArray): ByteArray {
@@ -411,7 +366,14 @@ class CallAudioStreamerService : Service() {
             android.util.Log.w("CallShieldStreamer", "AudioRecord cleanup failed: ${e.message}")
         }
         audioRecord = null
+        try { echoCanceler?.release() } catch (_: Exception) {}
+        try { noiseSuppressor?.release() } catch (_: Exception) {}
+        try { automaticGainControl?.release() } catch (_: Exception) {}
+        echoCanceler = null
+        noiseSuppressor = null
+        automaticGainControl = null
         recordingThread = null
+        analysisExecutor.shutdownNow()
         super.onDestroy()
     }
 }
