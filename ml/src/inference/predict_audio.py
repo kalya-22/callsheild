@@ -253,26 +253,26 @@ def predict_live_audio_chunk(
 
     try:
         audio, sr = librosa.load(audio_path, sr=config.sample_rate, mono=True)
-        audio = normalize_audio(audio.astype(np.float32))
+        audio = audio.astype(np.float32)
+        # Measure the captured signal before normalization. Normalizing first makes
+        # quiet background noise look like full-scale speech.
         rms = float(np.sqrt(np.mean(np.square(audio)))) if len(audio) else 0.0
     except Exception:
         return {
             "chunk_id": chunk_id,
-            "predicted_label": "human",
-            "raw_predicted_label": "chunk_parse_fallback",
-            "ai_probability": 0.15,
-            "ai_confidence_percent": 15.0,
-            "risk_level": "low",
+            "predicted_label": "insufficient_audio",
+            "raw_predicted_label": "chunk_parse_error",
+            "ai_probability": 0.0,
+            "ai_confidence_percent": 0.0,
+            "risk_level": "safe",
             "warning": False,
             "chunk_count": 1,
-            "current_chunk_risk": 0.15,
-            "current_chunk_risk_percent": 15.0,
-            "final_call_verdict": "human",
+            "current_chunk_risk": 0.0,
+            "current_chunk_risk_percent": 0.0,
+            "final_call_verdict": "insufficient_audio",
             "audio_rms": 0.0,
         }
 
-    min_samples = int(config.min_chunk_duration_seconds * sr)
-    max_samples = int(config.chunk_duration_seconds * sr)
     min_samples = int(config.min_chunk_duration_seconds * sr)
     max_samples = int(config.chunk_duration_seconds * sr)
     if len(audio) < min_samples or rms < config.min_live_rms:
@@ -295,6 +295,7 @@ def predict_live_audio_chunk(
             "spectral_cutoff_khz": 0.0,
         }
 
+    audio = normalize_audio(audio)
     if len(audio) > max_samples:
         audio = audio[-max_samples:]
 

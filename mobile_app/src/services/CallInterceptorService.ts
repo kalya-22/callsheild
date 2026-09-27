@@ -8,7 +8,7 @@ import { SupabaseService } from './SupabaseService';
 const { CallInterceptorModule } = NativeModules;
 
 export interface NativeCallEvent {
-  event: 'ON_CALL_RINGING' | 'ON_CALL_CONNECTED' | 'ON_CHUNK_CAPTURED' | 'ON_CALL_ENDED' | 'ON_ANALYZE_CALL_CLICKED';
+  event: 'ON_CALL_RINGING' | 'ON_CALL_CONNECTED' | 'ON_CHUNK_CAPTURED' | 'ON_ANALYSIS_ERROR' | 'ON_CALL_ENDED' | 'ON_ANALYZE_CALL_CLICKED';
   phoneNumber?: string;
   audioBase64?: string;
   chunkId?: number;
@@ -17,6 +17,7 @@ export interface NativeCallEvent {
   riskLevel?: 'low' | 'medium' | 'high';
   rawPredictedLabel?: string;
   audioRms?: number;
+  message?: string;
   timestamp?: number;
 }
 
@@ -100,11 +101,10 @@ class CallInterceptorService {
     callWebSocketService.connect();
     callWebSocketService.onPrediction(this.handlePredictionResult);
 
-    if (Platform.OS === 'android' && CallInterceptorModule) {
-      CallInterceptorModule.startCallProtection();
-    }
-
     this.ensureNativeEventSubscription();
+    if (Platform.OS === 'android' && CallInterceptorModule) {
+      CallInterceptorModule.startCallProtection(CallShieldApi.apiV1BaseUrl, this.currentCallerNumber);
+    }
   }
 
   public stopListening() {
@@ -180,6 +180,16 @@ class CallInterceptorService {
         } else if (event.audioBase64) {
           await this.processAudioChunk(event.audioBase64);
         }
+        break;
+
+      case 'ON_ANALYSIS_ERROR':
+        this.onChunkCallback?.({
+          chunk_id: event.chunkId,
+          predicted_label: 'insufficient_audio',
+          raw_predicted_label: 'analysis_unavailable',
+          ai_probability: 0,
+          analysis_error: event.message || 'Audio analysis is unavailable',
+        }, this.currentCallerNumber);
         break;
 
       case 'ON_CALL_ENDED':

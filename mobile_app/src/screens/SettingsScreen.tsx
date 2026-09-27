@@ -24,7 +24,9 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
   const [baseUrlInput, setBaseUrlInput] = useState(CallShieldApi.baseUrl);
 
   function saveBaseUrl() {
-    CallShieldApi.baseUrl = baseUrlInput.trim();
+    const normalizedUrl = CallShieldApi.normalizeApiBaseUrl(baseUrlInput);
+    CallShieldApi.baseUrl = normalizedUrl;
+    setBaseUrlInput(normalizedUrl);
   }
 
   return (
@@ -40,7 +42,7 @@ export function SettingsScreen({ onBack }: SettingsScreenProps) {
         {/* Backend Host Config */}
         <Text style={styles.sectionHeader}>Backend Server Configuration</Text>
         <GlassCard style={styles.card}>
-          <Text style={styles.label}>FastAPI Server URL</Text>
+          <Text style={styles.label}>FastAPI Server URL (add `/api/v1` automatically)</Text>
           <View style={styles.urlInputRow}>
             <TextInput
               style={styles.input}

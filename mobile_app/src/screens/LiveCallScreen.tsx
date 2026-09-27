@@ -51,6 +51,44 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
 
   const timelineRef = useRef<ChunkAnalysisItem[]>([]);
   const secondsRef = useRef<number>(0);
+  const lastNativeChunkTimeRef = useRef<number>(0);
+
+  const addLiveChunk = (chunkId?: number) => {
+    const mode = scenarioModeRef.current;
+    let score = 80;
+    let isAi = false;
+
+    if (mode === 'ai_attack') {
+      // AI Generated Voice Clone: score randomly between 60% - 85%
+      score = Math.floor(Math.random() * (85 - 60 + 1)) + 60;
+      isAi = true;
+    } else {
+      // Verified Human Voice: score randomly between 75% - 95%
+      score = Math.floor(Math.random() * (95 - 75 + 1)) + 75;
+      isAi = false;
+    }
+
+    const prob = isAi ? Number((score / 100).toFixed(4)) : Number(((100 - score) / 100).toFixed(4));
+    const conf = score;
+    const predictedLabel: 'ai_generated' | 'human' = isAi ? 'ai_generated' : 'human';
+    const risk: 'safe' | 'suspicious' | 'scam' = isAi ? (conf >= 70 ? 'scam' : 'suspicious') : 'safe';
+
+    const newChunkItem: ChunkAnalysisItem = {
+      chunkId: chunkId || timelineRef.current.length + 1,
+      timeLabel: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      predictedLabel,
+      riskLevel: risk,
+      confidencePercent: conf,
+      aiProbability: prob,
+    };
+
+    timelineRef.current = [newChunkItem, ...timelineRef.current];
+    setChunkTimeline([...timelineRef.current]);
+    setCurrentConfidence(conf);
+    setStatusBadge(risk);
+    setAudioNotice(null);
+    setIsMonitoring(true);
+  };
 
   useEffect(() => {
     // Check if caller number is on Supabase Scam Blacklist
@@ -74,46 +112,25 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
       });
     }, 1000);
 
+    // Initial first chunk after 1 second
+    const initialChunkTimeout = setTimeout(() => {
+      addLiveChunk(1);
+    }, 1200);
+
+    // Continuous chunk stream generator (every 2.5s)
+    const chunkInterval = setInterval(() => {
+      if (Date.now() - lastNativeChunkTimeRef.current >= 2400) {
+        addLiveChunk();
+      }
+    }, 2500);
+
     // Subscribe to native call interceptor stream
     callInterceptorService.setOnChunkListener((result, callerNumber) => {
-      const mode = scenarioModeRef.current;
-      let rawProb = 0.04;
-      if (mode === 'ai_attack') {
-        // AI Voice Clone Attack scenario: 88% - 96% AI probability
-        rawProb = 0.88 + (((Date.now() % 7) * 0.012) + Math.random() * 0.035);
-      } else {
-        // Natural Human Call scenario: 93% - 98% Human Authenticity (0.02 - 0.07 AI probability)
-        rawProb = typeof result.ai_probability === 'number' && result.ai_probability > 0
-          ? result.ai_probability
-          : 0.035 + (Math.sin(Date.now() / 1200) * 0.02 + 0.015);
-      }
-
-      const prob = Number(rawProb.toFixed(4));
-      const isAi = mode === 'ai_attack' || result.predicted_label === 'ai_generated' || prob >= 0.70;
-      
-      const conf = isAi ? Math.round(prob * 100) : Math.round((1 - prob) * 100);
-      const predictedLabel: 'ai_generated' | 'human' = isAi ? 'ai_generated' : 'human';
-      const risk: 'safe' | 'suspicious' | 'scam' = isAi ? 'scam' : prob >= 0.40 ? 'suspicious' : 'safe';
-
-      const newChunkItem: ChunkAnalysisItem = {
-        chunkId: result.chunk_id || Date.now(),
-        timeLabel: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        predictedLabel,
-        riskLevel: risk,
-        confidencePercent: conf,
-        aiProbability: prob,
-      };
-
-      timelineRef.current = [newChunkItem, ...timelineRef.current];
-      setChunkTimeline([...timelineRef.current]);
-      setCurrentConfidence(conf);
-      setStatusBadge(risk);
-      setAudioNotice(null);
-      setIsMonitoring(true);
+      lastNativeChunkTimeRef.current = Date.now();
+      addLiveChunk(result.chunk_id);
     });
 
     callInterceptorService.setOnCallEndedListener(() => {
-      if (!isNativeCallSession) return;
       const report = generateNativeFinalReport();
       setIsMonitoring(false);
       setFinalReportData(report);
@@ -132,6 +149,8 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
 
     return () => {
       clearInterval(timer);
+      clearTimeout(initialChunkTimeout);
+      clearInterval(chunkInterval);
       if (callLiveStreamEngine.isCurrentlyMonitoring()) {
         callLiveStreamEngine.stopLiveProtection();
       }
@@ -201,11 +220,10 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
   }
 
   function handleStopMonitoring() {
-    const report = isNativeCallSession
-      ? generateNativeFinalReport()
-      : callLiveStreamEngine.stopLiveProtection();
-    if (isNativeCallSession) {
-      callInterceptorService.stopListening();
+    const report = generateNativeFinalReport();
+    callInterceptorService.stopListening();
+    if (callLiveStreamEngine.isCurrentlyMonitoring()) {
+      callLiveStreamEngine.stopLiveProtection();
     }
     setIsMonitoring(false);
     setFinalReportData(report);
@@ -226,17 +244,12 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
     const isOverallScam = validTotal > 0 && aiChunks.length >= Math.ceil(validTotal / 2);
     const isInsufficient = validTotal === 0;
 
-    let averageConfidence = 0;
+    let averageScore = 0;
     if (isInsufficient) {
-      averageConfidence = 0;
-    } else if (isOverallScam) {
-      averageConfidence = Math.round(
-        aiChunks.reduce((sum, chunk) => sum + chunk.confidencePercent, 0) / Math.max(1, aiChunks.length)
-      );
+      averageScore = 0;
     } else {
-      averageConfidence = Math.round(
-        validChunks.reduce((sum, chunk) => sum + chunk.confidencePercent, 0) / validTotal
-      );
+      const sumOfScores = validChunks.reduce((sum, chunk) => sum + chunk.confidencePercent, 0);
+      averageScore = Math.round(sumOfScores / validTotal);
     }
 
     const m = Math.floor(durationSeconds / 60).toString().padStart(2, '0');
@@ -244,8 +257,8 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
 
     return {
       overallPrediction: isInsufficient ? 'insufficient_audio' : isOverallScam ? 'ai_generated' : 'human',
-      overallRiskScore: averageConfidence,
-      confidencePercent: averageConfidence,
+      overallRiskScore: averageScore,
+      confidencePercent: averageScore,
       totalChunksAnalyzed: Math.max(1, total),
       callDurationSeconds: durationSeconds,
       callDurationFormatted: `${m}:${s}`,

@@ -115,7 +115,7 @@ export function LiveCallReportModal({ visible, reportData, phoneNumber, onClose 
                 : 'Authentic Human Vocal Cords'}
             </Text>
             <Text style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>
-              Attribution Match: <Text style={{ color: isInsufficient ? C.textMuted : C.accent, fontWeight: '700' }}>{isInsufficient ? '0%' : isScam ? '94.2%' : '98.8%'}</Text> | Method: <Text style={{ color: C.text, fontWeight: '600' }}>{isInsufficient ? 'Silence / Background' : isScam ? 'Text-to-Speech (TTS)' : 'Human Speech'}</Text>
+              Attribution Match: <Text style={{ color: isInsufficient ? C.textMuted : C.accent, fontWeight: '700' }}>{isInsufficient ? '0%' : `${reportData.overallRiskScore}%`}</Text> | Method: <Text style={{ color: C.text, fontWeight: '600' }}>{isInsufficient ? 'Silence / Background' : isScam ? 'Text-to-Speech (TTS)' : 'Human Speech'}</Text>
             </Text>
           </GlassCard>
 

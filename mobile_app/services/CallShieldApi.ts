@@ -29,18 +29,28 @@ function getDynamicHostIp(): string {
 export class CallShieldApi {
   private static dynamicIp = getDynamicHostIp();
 
-  public static baseUrl: string = 'https://callshield-api.onrender.com/api/v1';
+  public static baseUrl: string = 'https://callsheild.onrender.com/api/v1';
+
+  public static normalizeApiBaseUrl(input: string): string {
+    const trimmed = input.trim().replace(/\/+$/, '');
+    if (!trimmed || /\/api\/v1$/i.test(trimmed)) return trimmed;
+    return `${trimmed}/api/v1`;
+  }
+
+  public static get apiV1BaseUrl(): string {
+    return CallShieldApi.normalizeApiBaseUrl(CallShieldApi.baseUrl);
+  }
 
   public static async getStatus(): Promise<any> {
     const candidates = [
       CallShieldApi.baseUrl,
-      'https://callshield-api.onrender.com/api/v1',
+      'https://callsheild.onrender.com/api/v1',
       'http://10.153.26.231:8000/api/v1',
       'https://callshield-api.localtunnel.me/api/v1',
       `http://${CallShieldApi.dynamicIp}:8000/api/v1`,
       'http://10.0.2.2:8000/api/v1',
     ];
-    const uniqueCandidates = Array.from(new Set(candidates));
+    const uniqueCandidates = Array.from(new Set(candidates.map(CallShieldApi.normalizeApiBaseUrl)));
 
     for (const url of uniqueCandidates) {
       try {

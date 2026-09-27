@@ -99,6 +99,16 @@ class CallInterceptorModule(reactContext: ReactApplicationContext) :
             instance?.sendEvent("CallShieldNativeEvent", params)
         }
 
+        fun emitAnalysisError(phoneNumber: String, chunkId: Int, message: String) {
+            val params = Arguments.createMap().apply {
+                putString("phoneNumber", resolveCallNumber(phoneNumber))
+                putString("event", "ON_ANALYSIS_ERROR")
+                putInt("chunkId", chunkId)
+                putString("message", message)
+            }
+            instance?.sendEvent("CallShieldNativeEvent", params)
+        }
+
         fun isNumberBlocked(phoneNumber: String): Boolean {
             return blockedNumbers.contains(phoneNumber)
         }
@@ -119,9 +129,12 @@ class CallInterceptorModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun startCallProtection(promise: Promise) {
+    fun startCallProtection(apiBaseUrl: String, phoneNumber: String, promise: Promise) {
         try {
-            val intent = Intent(reactApplicationContext, CallAudioStreamerService::class.java)
+            val intent = Intent(reactApplicationContext, CallAudioStreamerService::class.java).apply {
+                putExtra("apiBaseUrl", apiBaseUrl)
+                putExtra("phoneNumber", phoneNumber)
+            }
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 reactApplicationContext.startForegroundService(intent)
             } else {
