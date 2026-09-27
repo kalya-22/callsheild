@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { NativeModules, Platform } from 'react-native';
 
 const SUPABASE_URL = 'https://vwhfjcpjyjkglionqpny.supabase.co';
 const SUPABASE_ANON_KEY =
@@ -12,6 +13,26 @@ const HEADERS = {
 };
 
 const LOCAL_BLACKLIST_KEY = 'callshield_scam_blacklist_local';
+const LOCAL_BLOCKED_CONTACTS_KEY = 'callshield_blocked_contacts_list';
+
+export interface BlockedContactItem {
+  id: string;
+  name: string;
+  number: string;
+  reason: string;
+  date: string;
+}
+
+const INITIAL_BLOCKED_CONTACTS: BlockedContactItem[] = [
+  { id: '1', name: 'Unknown AI Vishing Bot', number: '+91 98765 43210', reason: 'High Risk Vishing Attempt (89% score)', date: 'Today' },
+  { id: '2', name: 'Fake Lottery Desk', number: '+91 80123 99999', reason: 'Reported by Community', date: 'Yesterday' },
+  { id: '3', name: 'Spam Robo Call', number: '+91 91111 22222', reason: 'Auto-blocked by strict AI sensitivity', date: 'Jul 28, 2026' },
+];
+
+export function cleanPhoneNumber(phone: string): string {
+  if (!phone) return '';
+  return phone.replace(/[\s\-\(\)]/g, '').trim();
+}
 
 export interface LiveCallReportRow {
   phone_number: string;
@@ -23,11 +44,6 @@ export interface LiveCallReportRow {
   synthesis_technique?: string;
   call_duration_seconds?: number;
   chunk_count?: number;
-}
-
-export interface ScamBlacklistRow {
-  phone_number: string;
-  source?: string;
 }
 
 export class SupabaseService {
@@ -54,7 +70,7 @@ export class SupabaseService {
       return true;
     } catch (err) {
       console.warn('[SupabaseService] saveLiveCallReport network error (offline fallback active):', err);
-      return true; // Graceful fallback
+      return true;
     }
   }
 
@@ -74,23 +90,71 @@ export class SupabaseService {
     }
   }
 
-  // ─── Scam Blacklist (Offline-First with Cloud Sync) ──────────────────────────
+  // ─── Blocked Scam Contacts List & Blacklist Management ────────────────────
 
-  public static async addToScamBlacklist(phoneNumber: string): Promise<boolean> {
+  public static async getBlockedContacts(): Promise<BlockedContactItem[]> {
+    try {
+      const existingStr = await AsyncStorage.getItem(LOCAL_BLOCKED_CONTACTS_KEY);
+      if (existingStr) {
+        const parsed: BlockedContactItem[] = JSON.parse(existingStr);
+        if (parsed && Array.isArray(parsed)) {
+          return parsed;
+        }
+      }
+      // Initialize with default list if empty
+      await AsyncStorage.setItem(LOCAL_BLOCKED_CONTACTS_KEY, JSON.stringify(INITIAL_BLOCKED_CONTACTS));
+      const initialPhones = INITIAL_BLOCKED_CONTACTS.map((c) => cleanPhoneNumber(c.number));
+      await AsyncStorage.setItem(LOCAL_BLACKLIST_KEY, JSON.stringify(initialPhones));
+      return INITIAL_BLOCKED_CONTACTS;
+    } catch (err) {
+      console.warn('[SupabaseService] Error loading blocked contacts:', err);
+      return INITIAL_BLOCKED_CONTACTS;
+    }
+  }
+
+  public static async addToScamBlacklist(
+    phoneNumber: string,
+    reason = 'Reported as Scam Voice Clone',
+    callerName?: string
+  ): Promise<boolean> {
     if (!phoneNumber || phoneNumber === 'Unknown Caller') return true;
-    const cleanNumber = phoneNumber.trim();
+    const cleanNum = cleanPhoneNumber(phoneNumber);
+    const displayNum = phoneNumber.trim();
 
     try {
-      // 1. Always save to local AsyncStorage blacklist immediately
-      const existingStr = await AsyncStorage.getItem(LOCAL_BLACKLIST_KEY);
-      const existingList: string[] = existingStr ? JSON.parse(existingStr) : [];
-      if (!existingList.includes(cleanNumber)) {
-        existingList.push(cleanNumber);
-        await AsyncStorage.setItem(LOCAL_BLACKLIST_KEY, JSON.stringify(existingList));
-        console.log(`[SupabaseService] Added ${cleanNumber} to local blacklist ✅`);
+      // 1. Update simple blacklist set
+      const blacklistStr = await AsyncStorage.getItem(LOCAL_BLACKLIST_KEY);
+      const blacklist: string[] = blacklistStr ? JSON.parse(blacklistStr) : [];
+      if (!blacklist.some((n) => cleanPhoneNumber(n) === cleanNum)) {
+        blacklist.push(cleanNum);
+        blacklist.push(displayNum);
+        await AsyncStorage.setItem(LOCAL_BLACKLIST_KEY, JSON.stringify(blacklist));
       }
 
-      // 2. Best-effort cloud sync in background
+      // 2. Update rich Blocked Contacts list
+      const contacts = await this.getBlockedContacts();
+      const alreadyInList = contacts.some((c) => cleanPhoneNumber(c.number) === cleanNum);
+      if (!alreadyInList) {
+        const newContact: BlockedContactItem = {
+          id: Date.now().toString(),
+          name: callerName || 'Flagged Scam Caller',
+          number: displayNum,
+          reason,
+          date: 'Just now',
+        };
+        const updatedList = [newContact, ...contacts];
+        await AsyncStorage.setItem(LOCAL_BLOCKED_CONTACTS_KEY, JSON.stringify(updatedList));
+      }
+
+      // 3. Notify native CallInterceptorModule to block calls natively
+      if (Platform.OS === 'android' && NativeModules.CallInterceptorModule?.blockNumber) {
+        try {
+          await NativeModules.CallInterceptorModule.blockNumber(displayNum);
+          await NativeModules.CallInterceptorModule.blockNumber(cleanNum);
+        } catch {}
+      }
+
+      // 4. Background cloud sync
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3000);
@@ -98,17 +162,16 @@ export class SupabaseService {
           method: 'POST',
           headers: { ...HEADERS, Prefer: 'resolution=merge-duplicates,return=representation' },
           body: JSON.stringify({
-            phone_number: cleanNumber,
+            phone_number: displayNum,
             report_count: 1,
             source: 'callshield_auto',
           }),
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
-      } catch (cloudErr) {
-        console.warn('[SupabaseService] Cloud blacklist sync silent error:', cloudErr);
-      }
+      } catch {}
 
+      console.log(`[SupabaseService] Number ${displayNum} added to Blocked Scam Numbers ✅`);
       return true;
     } catch (err) {
       console.warn('[SupabaseService] Local blacklist error:', err);
@@ -116,31 +179,76 @@ export class SupabaseService {
     }
   }
 
+  public static async removeFromScamBlacklist(phoneNumber: string): Promise<boolean> {
+    if (!phoneNumber) return true;
+    const cleanNum = cleanPhoneNumber(phoneNumber);
+
+    try {
+      // 1. Remove from simple blacklist set
+      const blacklistStr = await AsyncStorage.getItem(LOCAL_BLACKLIST_KEY);
+      if (blacklistStr) {
+        const blacklist: string[] = JSON.parse(blacklistStr);
+        const filtered = blacklist.filter((n) => cleanPhoneNumber(n) !== cleanNum && n !== phoneNumber);
+        await AsyncStorage.setItem(LOCAL_BLACKLIST_KEY, JSON.stringify(filtered));
+      }
+
+      // 2. Remove from rich Blocked Contacts list
+      const contacts = await this.getBlockedContacts();
+      const updatedList = contacts.filter((c) => cleanPhoneNumber(c.number) !== cleanNum && c.number !== phoneNumber && c.id !== phoneNumber);
+      await AsyncStorage.setItem(LOCAL_BLOCKED_CONTACTS_KEY, JSON.stringify(updatedList));
+
+      // 3. Unblock on native Android layer
+      if (Platform.OS === 'android' && NativeModules.CallInterceptorModule?.unblockNumber) {
+        try {
+          await NativeModules.CallInterceptorModule.unblockNumber(phoneNumber);
+          await NativeModules.CallInterceptorModule.unblockNumber(cleanNum);
+        } catch {}
+      }
+
+      // 4. Delete from Supabase cloud database if reachable
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        await fetch(`${SUPABASE_URL}/rest/v1/scam_blacklist?phone_number=eq.${encodeURIComponent(phoneNumber)}`, {
+          method: 'DELETE',
+          headers: HEADERS,
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+      } catch {}
+
+      console.log(`[SupabaseService] Number ${phoneNumber} UNBLOCKED and removed from scam list ✅`);
+      return true;
+    } catch (err) {
+      console.warn('[SupabaseService] Error unblocking number:', err);
+      return true;
+    }
+  }
+
   public static async isScamBlacklisted(phoneNumber: string): Promise<boolean> {
     if (!phoneNumber || phoneNumber === 'Unknown Caller') return false;
-    const cleanNumber = phoneNumber.trim();
+    const cleanNum = cleanPhoneNumber(phoneNumber);
 
     try {
       // 1. Check local persistent blacklist
       const existingStr = await AsyncStorage.getItem(LOCAL_BLACKLIST_KEY);
       if (existingStr) {
         const existingList: string[] = JSON.parse(existingStr);
-        if (existingList.includes(cleanNumber)) {
+        if (existingList.some((n) => cleanPhoneNumber(n) === cleanNum || n === phoneNumber)) {
           return true;
         }
       }
 
-      // 2. Query cloud database
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-      const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/scam_blacklist?phone_number=eq.${encodeURIComponent(cleanNumber)}&limit=1`,
-        { method: 'GET', headers: HEADERS, signal: controller.signal }
-      );
-      clearTimeout(timeoutId);
-      if (!response.ok) return false;
-      const data: unknown[] = await response.json();
-      return data.length > 0;
+      // 2. Check local blocked contacts
+      const contactsStr = await AsyncStorage.getItem(LOCAL_BLOCKED_CONTACTS_KEY);
+      if (contactsStr) {
+        const contactsList: BlockedContactItem[] = JSON.parse(contactsStr);
+        if (contactsList.some((c) => cleanPhoneNumber(c.number) === cleanNum || c.number === phoneNumber)) {
+          return true;
+        }
+      }
+
+      return false;
     } catch {
       return false;
     }

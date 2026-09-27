@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -6,33 +6,47 @@ import {
   TouchableOpacity,
   ScrollView,
   SafeAreaView,
+  Alert,
 } from 'react-native';
 import { C } from '../theme/colors';
 import { GlassCard } from '../components/GlassCard';
-
-interface BlockedContact {
-  id: string;
-  name: string;
-  number: string;
-  reason: string;
-  date: string;
-}
-
-const initialBlocked: BlockedContact[] = [
-  { id: '1', name: 'Unknown AI Vishing Bot', number: '+91 98765 43210', reason: 'High Risk Vishing Attempt (89% score)', date: 'Today' },
-  { id: '2', name: 'Fake Lottery Desk', number: '+91 80123 99999', reason: 'Reported by Community', date: 'Yesterday' },
-  { id: '3', name: 'Spam Robo Call', number: '+91 91111 22222', reason: 'Auto-blocked by strict AI sensitivity', date: 'Jul 28, 2026' },
-];
+import { SupabaseService, BlockedContactItem } from '../services/SupabaseService';
 
 interface BlockedContactsScreenProps {
   onBack: () => void;
 }
 
 export function BlockedContactsScreen({ onBack }: BlockedContactsScreenProps) {
-  const [contacts, setContacts] = useState<BlockedContact[]>(initialBlocked);
+  const [contacts, setContacts] = useState<BlockedContactItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  function unblock(id: string) {
-    setContacts((prev) => prev.filter((c) => c.id !== id));
+  useEffect(() => {
+    loadContacts();
+  }, []);
+
+  async function loadContacts() {
+    setLoading(true);
+    try {
+      const list = await SupabaseService.getBlockedContacts();
+      setContacts(list);
+    } catch (err) {
+      console.warn('[BlockedContactsScreen] Error reading blocked contacts:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleUnblock(item: BlockedContactItem) {
+    try {
+      await SupabaseService.removeFromScamBlacklist(item.number);
+      setContacts((prev) => prev.filter((c) => c.id !== item.id && c.number !== item.number));
+      Alert.alert(
+        '✅ Number Unblocked',
+        `"${item.number}" has been removed from the blocked scam list. Future calls from this number will not trigger scam blacklist warnings.`
+      );
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to unblock number');
+    }
   }
 
   return (
@@ -42,7 +56,7 @@ export function BlockedContactsScreen({ onBack }: BlockedContactsScreenProps) {
           <TouchableOpacity style={styles.backBtn} onPress={onBack}>
             <Text style={styles.backBtnText}>← Back</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Blocked Scam Contacts</Text>
+          <Text style={styles.headerTitle}>Blocked Scam Contacts ({contacts.length})</Text>
         </View>
 
         {contacts.map((item) => (
@@ -51,15 +65,16 @@ export function BlockedContactsScreen({ onBack }: BlockedContactsScreenProps) {
               <Text style={styles.name}>{item.name}</Text>
               <Text style={styles.number}>{item.number}</Text>
               <Text style={styles.reason}>Reason: {item.reason}</Text>
+              {item.date ? <Text style={[styles.reason, { marginTop: 2, color: C.textMuted }]}>Added: {item.date}</Text> : null}
             </View>
 
-            <TouchableOpacity style={styles.unblockBtn} onPress={() => unblock(item.id)}>
+            <TouchableOpacity style={styles.unblockBtn} onPress={() => handleUnblock(item)}>
               <Text style={styles.unblockText}>Unblock</Text>
             </TouchableOpacity>
           </GlassCard>
         ))}
 
-        {contacts.length === 0 && (
+        {!loading && contacts.length === 0 && (
           <GlassCard style={styles.emptyCard}>
             <Text style={styles.emptyText}>No blocked numbers yet.</Text>
           </GlassCard>

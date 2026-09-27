@@ -54,7 +54,12 @@ export function LiveCallReportModal({ visible, reportData, phoneNumber, onClose 
     }
     setIsReporting(true);
     try {
-      await SupabaseService.addToScamBlacklist(phoneNumber);
+      const score = Math.round(reportData?.overallRiskScore || reportData?.confidencePercent || 85);
+      await SupabaseService.addToScamBlacklist(
+        phoneNumber,
+        `AI Voice Clone Attempt (${score}% score)`,
+        'Reported Scam Caller'
+      );
       setIsReported(true);
       Alert.alert(
         '🚨 Number Flagged & Blacklisted',

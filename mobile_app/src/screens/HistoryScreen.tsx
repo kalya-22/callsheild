@@ -266,15 +266,11 @@ export function HistoryScreen({ onSelectReport }: HistoryScreenProps) {
                       return;
                     }
                     try {
-                      const success = await SupabaseService.addToScamBlacklist(phone);
-                      if (success) {
-                        Alert.alert(
-                          '🚨 Number Added to Blacklist',
-                          `"${phone}" has been successfully added to CallShield's Global Scam Blacklist.`
-                        );
-                      } else {
-                        Alert.alert('Error', 'Unable to sync blacklist to Supabase cloud.');
-                      }
+                      await SupabaseService.addToScamBlacklist(phone, `Flagged in Call History (${confPercent}% AI risk)`);
+                      Alert.alert(
+                        '🚨 Number Added to Blocked Scam List',
+                        `"${phone}" has been successfully added to your Blocked Scam Numbers.`
+                      );
                     } catch (err: any) {
                       Alert.alert('Error', err.message || 'Failed to blacklist number');
                     }
