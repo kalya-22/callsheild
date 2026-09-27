@@ -17,7 +17,7 @@ export class AuthStorage {
     try {
       const session: UserSession = {
         isLoggedIn: true,
-        name: name || 'Alex Johnson',
+        name: name || 'User',
         email: email || 'user@callshield.ai',
         loginTimestamp: Date.now(),
       };

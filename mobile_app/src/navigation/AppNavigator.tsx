@@ -43,7 +43,8 @@ export type ScreenState =
 export function AppNavigator() {
   const [currentScreen, setCurrentScreen] = useState<ScreenState>('splash');
   const [selectedReportItem, setSelectedReportItem] = useState<any>(null);
-  const [userName, setUserName] = useState<string>('Alex Johnson');
+  const [userName, setUserName] = useState<string>('User');
+  const [userEmail, setUserEmail] = useState<string>('user@callshield.ai');
   const [activeCallerNumber, setActiveCallerNumber] = useState<string>('Unknown Caller');
   const [isCheckingSession, setIsCheckingSession] = useState(true);
 
@@ -61,6 +62,9 @@ export function AppNavigator() {
         if (session && session.isLoggedIn) {
           if (session.name) {
             setUserName(session.name);
+          }
+          if (session.email) {
+            setUserEmail(session.email);
           }
           setCurrentScreen((screen) => (screen === 'live_call' ? 'live_call' : 'home'));
         }
@@ -92,8 +96,9 @@ export function AppNavigator() {
   if (currentScreen === 'login') {
     return (
       <LoginScreen
-        onLoginSuccess={(name) => {
+        onLoginSuccess={(name, email) => {
           if (name) setUserName(name);
+          if (email) setUserEmail(email);
           setCurrentScreen('home');
         }}
       />
@@ -201,8 +206,12 @@ export function AppNavigator() {
 
         {currentScreen === 'profile' && (
           <ProfileScreen
+            userName={userName}
+            userEmail={userEmail}
             onLogout={async () => {
               await AuthStorage.clearSession();
+              setUserName('User');
+              setUserEmail('user@callshield.ai');
               setCurrentScreen('login');
             }}
             onNavigateSettings={() => setCurrentScreen('settings')}

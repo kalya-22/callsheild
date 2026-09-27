@@ -21,7 +21,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import { CallShieldApi } from '../../services/CallShieldApi';
 
 interface LoginScreenProps {
-  onLoginSuccess: (userName?: string) => void;
+  onLoginSuccess: (userName?: string, userEmail?: string) => void;
 }
 
 interface GoogleAccountOption {
@@ -31,8 +31,8 @@ interface GoogleAccountOption {
 
 const mockGoogleAccounts: GoogleAccountOption[] = [
   { name: 'Kalyan Kumar', email: 'kalyan.tech2026@gmail.com' },
-  { name: 'Alex Johnson', email: 'alex.johnson@gmail.com' },
-  { name: 'CallShield User', email: 'user.callshield@gmail.com' },
+  { name: 'User', email: 'user@callshield.ai' },
+  { name: 'CallShield Protected', email: 'shield.user@gmail.com' },
 ];
 
 export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
@@ -60,24 +60,24 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
     try {
       if (tab === 'signup') {
-        const result = await CallShieldApi.signup(name.trim() || 'CallShield User', email, password);
-        const displayName = result.user?.full_name || name.trim() || 'CallShield User';
+        const result = await CallShieldApi.signup(name.trim() || 'User', email, password);
+        const displayName = result.user?.full_name || name.trim() || 'User';
         await AuthStorage.saveSession(displayName, email);
-        onLoginSuccess(displayName);
+        onLoginSuccess(displayName, email);
       } else {
         const result = await CallShieldApi.login(email, password);
-        const displayName = result.user?.full_name || email.split('@')[0] || 'CallShield User';
+        const displayName = result.user?.full_name || email.split('@')[0] || 'User';
         await AuthStorage.saveSession(displayName, email);
-        onLoginSuccess(displayName);
+        onLoginSuccess(displayName, email);
       }
     } catch (err: any) {
       console.warn('[LoginScreen] Database auth notice:', err?.message);
       const userDisplayName = tab === 'signup'
-        ? (name.trim() || 'Alex Johnson')
-        : (email.split('@')[0] || 'Alex Johnson');
+        ? (name.trim() || 'User')
+        : (email.split('@')[0] || 'User');
       const formattedName = userDisplayName.charAt(0).toUpperCase() + userDisplayName.slice(1);
       await AuthStorage.saveSession(formattedName, email);
-      onLoginSuccess(formattedName);
+      onLoginSuccess(formattedName, email);
     } finally {
       setLoading(false);
     }
@@ -92,18 +92,18 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     try {
       setShowGoogleModal(false);
       setLoading(true);
-      const cleanName = accountName.trim() || accountEmail.split('@')[0] || 'Google User';
+      const cleanName = accountName.trim() || accountEmail.split('@')[0] || 'User';
 
       try {
         const result = await CallShieldApi.googleLogin();
         const serverName = result.user?.full_name || cleanName;
         const serverEmail = result.user?.email || accountEmail;
         await AuthStorage.saveSession(serverName, serverEmail);
-        onLoginSuccess(serverName);
+        onLoginSuccess(serverName, serverEmail);
       } catch (backendErr) {
         // Fallback local session with chosen Google account
         await AuthStorage.saveSession(cleanName, accountEmail);
-        onLoginSuccess(cleanName);
+        onLoginSuccess(cleanName, accountEmail);
       }
     } catch (err: any) {
       setError(`Google Login failed: ${err.message}`);
@@ -128,8 +128,8 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       });
 
       if (result.success) {
-        await AuthStorage.saveSession('Verified User', 'biometric@callshield.ai');
-        onLoginSuccess('Verified User');
+        await AuthStorage.saveSession('User', 'biometric@callshield.ai');
+        onLoginSuccess('User', 'biometric@callshield.ai');
       } else {
         setError('Biometric authentication failed. Please try again.');
       }
@@ -188,7 +188,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 <Text style={styles.label}>FULL NAME</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Alex Johnson"
+                  placeholder="e.g. User"
                   placeholderTextColor={C.textMuted}
                   value={name}
                   onChangeText={setName}

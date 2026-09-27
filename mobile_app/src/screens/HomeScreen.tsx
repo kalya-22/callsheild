@@ -37,7 +37,7 @@ interface HomeScreenProps {
   onTriggerAlert?: () => void;
 }
 
-export function HomeScreen({ userName = 'Alex Johnson', onStartLiveCall, onUploadSuccess, onTriggerAlert }: HomeScreenProps) {
+export function HomeScreen({ userName = 'User', onStartLiveCall, onUploadSuccess, onTriggerAlert }: HomeScreenProps) {
   const [protectionActive, setProtectionActive] = useState(true);
   const [nativeInterceptorActive, setNativeInterceptorActive] = useState(true);
   const [backendOnline, setBackendOnline] = useState(true);

@@ -4,6 +4,8 @@ import { C } from '../theme/colors';
 import { GlassCard } from '../components/GlassCard';
 
 interface ProfileScreenProps {
+  userName?: string;
+  userEmail?: string;
   onLogout: () => void;
   onNavigateSettings?: () => void;
   onNavigateBlocked?: () => void;
@@ -12,12 +14,24 @@ interface ProfileScreenProps {
 }
 
 export function ProfileScreen({
+  userName = 'User',
+  userEmail = 'user@callshield.ai',
   onLogout,
   onNavigateSettings,
   onNavigateBlocked,
   onNavigateReport,
   onNavigateEmergency,
 }: ProfileScreenProps) {
+  // Compute initials from dynamic name
+  const initials = userName
+    ? userName
+        .trim()
+        .split(/\s+/)
+        .map((part) => part.charAt(0).toUpperCase())
+        .slice(0, 2)
+        .join('') || 'U'
+    : 'U';
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -26,10 +40,10 @@ export function ProfileScreen({
         {/* Profile Card */}
         <GlassCard style={styles.profileCard}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>JD</Text>
+            <Text style={styles.avatarText}>{initials}</Text>
           </View>
-          <Text style={styles.name}>John Doe</Text>
-          <Text style={styles.phone}>+1 (555) 019-2834</Text>
+          <Text style={styles.name}>{userName || 'User'}</Text>
+          <Text style={styles.phone}>{userEmail || 'user@callshield.ai'}</Text>
 
           <View style={styles.badgeRow}>
             <View style={styles.shieldBadge}>
