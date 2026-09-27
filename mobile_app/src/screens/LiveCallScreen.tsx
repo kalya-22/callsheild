@@ -74,8 +74,7 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
     callInterceptorService.setOnChunkListener((result, callerNumber) => {
       const isInsufficient =
         result.predicted_label === 'insufficient_audio' ||
-        result.raw_predicted_label === 'insufficient_audio' ||
-        (typeof result.audio_rms === 'number' && result.audio_rms < 0.004);
+        result.raw_predicted_label === 'insufficient_audio';
 
       if (isInsufficient) {
         const newChunkItem: ChunkAnalysisItem = {
@@ -89,7 +88,7 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
 
         timelineRef.current = [newChunkItem, ...timelineRef.current];
         setChunkTimeline([...timelineRef.current]);
-        setAudioNotice('Listening for caller voice... (Insufficient audio / silence)');
+        setAudioNotice('Listening for caller voice... (No speech detected)');
         return;
       }
 

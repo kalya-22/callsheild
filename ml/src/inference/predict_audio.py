@@ -30,7 +30,7 @@ class PredictionConfig:
     warning_threshold: float = 0.55
     live_ai_chunk_threshold: float = 0.75
     live_warning_threshold: float = 0.7
-    min_live_rms: float = 0.004
+    min_live_rms: float = 0.0001
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]

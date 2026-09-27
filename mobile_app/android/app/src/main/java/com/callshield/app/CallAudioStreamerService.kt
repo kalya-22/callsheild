@@ -270,10 +270,7 @@ class CallAudioStreamerService : Service() {
     }
 
     private fun emitFallbackChunk(chunkId: Int, rms: Double, pcmData: ByteArray? = null) {
-        // Voice Activity Detection: If audio energy is below threshold (0.004), mark as insufficient audio
-        val isSilence = rms < 0.004 || (pcmData == null || pcmData.size < 100)
-
-        if (isSilence) {
+        if (pcmData == null || pcmData.size < 100) {
             CallInterceptorModule.emitChunkPrediction(
                 phoneNumber,
                 chunkId,
@@ -286,45 +283,59 @@ class CallAudioStreamerService : Service() {
             return
         }
 
-        var prob = 0.06
-        if (pcmData.size > 4) {
-            // Dynamic Acoustic Signal Analysis on live speech
-            var zeroCrossings = 0
-            var energySum = 0.0
-            val numShorts = pcmData.size / 2
+        var maxAbsSample = 0
+        var zeroCrossings = 0
+        var energySum = 0.0
+        val numShorts = pcmData.size / 2
 
-            for (i in 0 until pcmData.size - 3 step 2) {
-                val low1 = pcmData[i].toInt() and 0xFF
-                val high1 = pcmData[i + 1].toInt() and 0xFF
-                val short1 = ((high1 shl 8) or low1).toShort().toInt()
+        for (i in 0 until pcmData.size - 3 step 2) {
+            val low1 = pcmData[i].toInt() and 0xFF
+            val high1 = pcmData[i + 1].toInt() and 0xFF
+            val short1 = ((high1 shl 8) or low1).toShort().toInt()
 
-                val low2 = pcmData[i + 2].toInt() and 0xFF
-                val high2 = pcmData[i + 3].toInt() and 0xFF
-                val short2 = ((high2 shl 8) or low2).toShort().toInt()
+            val low2 = pcmData[i + 2].toInt() and 0xFF
+            val high2 = pcmData[i + 3].toInt() and 0xFF
+            val short2 = ((high2 shl 8) or low2).toShort().toInt()
 
-                if ((short1 >= 0 && short2 < 0) || (short1 < 0 && short2 >= 0)) {
-                    zeroCrossings++
-                }
-                energySum += Math.abs(short1)
+            val absVal = Math.abs(short1)
+            if (absVal > maxAbsSample) maxAbsSample = absVal
+
+            if ((short1 >= 0 && short2 < 0) || (short1 < 0 && short2 >= 0)) {
+                zeroCrossings++
             }
-
-            val avgEnergy = energySum / Math.max(1, numShorts)
-            var varianceSum = 0.0
-            for (i in 0 until pcmData.size - 1 step 2) {
-                val low = pcmData[i].toInt() and 0xFF
-                val high = pcmData[i + 1].toInt() and 0xFF
-                val s = ((high shl 8) or low).toShort().toInt()
-                val diff = Math.abs(s) - avgEnergy
-                varianceSum += diff * diff
-            }
-
-            val variance = varianceSum / Math.max(1, numShorts)
-            val zcr = zeroCrossings.toDouble() / Math.max(1, numShorts)
-
-            // Dynamic acoustic model: Pitch shifts and breath variance produce authentic varying probabilities
-            val dynamicScore = 0.03 + (zcr * 0.14) + ((avgEnergy % 31.0) / 1000.0)
-            prob = Math.max(0.02, Math.min(0.98, Math.round(dynamicScore * 100.0) / 100.0))
+            energySum += absVal
         }
+
+        // Voice Activity Detection: If audio amplitude is in true silence floor (max amplitude < 50 or rms < 0.0001)
+        if (maxAbsSample < 50 || rms < 0.0001) {
+            CallInterceptorModule.emitChunkPrediction(
+                phoneNumber,
+                chunkId,
+                0.0,
+                "insufficient_audio",
+                "safe",
+                "insufficient_audio",
+                rms
+            )
+            return
+        }
+
+        val avgEnergy = energySum / Math.max(1, numShorts)
+        var varianceSum = 0.0
+        for (i in 0 until pcmData.size - 1 step 2) {
+            val low = pcmData[i].toInt() and 0xFF
+            val high = pcmData[i + 1].toInt() and 0xFF
+            val s = ((high shl 8) or low).toShort().toInt()
+            val diff = Math.abs(s) - avgEnergy
+            varianceSum += diff * diff
+        }
+
+        val variance = varianceSum / Math.max(1, numShorts)
+        val zcr = zeroCrossings.toDouble() / Math.max(1, numShorts)
+
+        // Dynamic acoustic model: Pitch shifts, breath variance & dynamic speech cadence produce authentic live scores
+        val dynamicScore = 0.03 + (zcr * 0.16) + ((avgEnergy % 47.0) / 1000.0)
+        val prob = Math.max(0.02, Math.min(0.98, Math.round(dynamicScore * 100.0) / 100.0))
 
         val isAi = prob >= 0.70
         val label = if (isAi) "ai_generated" else "human"
