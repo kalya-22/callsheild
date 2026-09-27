@@ -6,7 +6,12 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import (
+    ExtraTreesClassifier,
+    GradientBoostingClassifier,
+    RandomForestClassifier,
+    VotingClassifier,
+)
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
@@ -59,44 +64,70 @@ def get_feature_columns(features: pd.DataFrame) -> list[str]:
 
 
 def build_models(random_state: int) -> dict[str, Pipeline]:
+    rf = RandomForestClassifier(
+        class_weight="balanced",
+        n_estimators=400,
+        max_depth=12,
+        random_state=random_state,
+    )
+    gb = GradientBoostingClassifier(
+        n_estimators=300,
+        learning_rate=0.05,
+        max_depth=5,
+        random_state=random_state,
+    )
+    et = ExtraTreesClassifier(
+        class_weight="balanced",
+        n_estimators=400,
+        max_depth=12,
+        random_state=random_state,
+    )
+    lr = LogisticRegression(
+        class_weight="balanced",
+        max_iter=1000,
+        random_state=random_state,
+    )
+    svm = SVC(
+        class_weight="balanced",
+        kernel="rbf",
+        probability=True,
+        random_state=random_state,
+    )
+
+    voting = VotingClassifier(
+        estimators=[
+            ("rf", rf),
+            ("gb", gb),
+            ("et", et),
+            ("lr", Pipeline([("scaler", StandardScaler()), ("lr", lr)])),
+            ("svm", Pipeline([("scaler", StandardScaler()), ("svm", svm)])),
+        ],
+        voting="soft",
+    )
+
     return {
-        "logistic_regression": Pipeline(
+        "voting_ensemble": Pipeline(
             steps=[
                 ("scaler", StandardScaler()),
-                (
-                    "classifier",
-                    LogisticRegression(
-                        class_weight="balanced",
-                        max_iter=1000,
-                        random_state=random_state,
-                    ),
-                ),
-            ]
-        ),
-        "svm_rbf": Pipeline(
-            steps=[
-                ("scaler", StandardScaler()),
-                (
-                    "classifier",
-                    SVC(
-                        class_weight="balanced",
-                        kernel="rbf",
-                        probability=True,
-                        random_state=random_state,
-                    ),
-                ),
+                ("classifier", voting),
             ]
         ),
         "random_forest": Pipeline(
             steps=[
-                (
-                    "classifier",
-                    RandomForestClassifier(
-                        class_weight="balanced",
-                        n_estimators=300,
-                        random_state=random_state,
-                    ),
-                ),
+                ("scaler", StandardScaler()),
+                ("classifier", rf),
+            ]
+        ),
+        "gradient_boosting": Pipeline(
+            steps=[
+                ("scaler", StandardScaler()),
+                ("classifier", gb),
+            ]
+        ),
+        "extra_trees": Pipeline(
+            steps=[
+                ("scaler", StandardScaler()),
+                ("classifier", et),
             ]
         ),
     }
@@ -185,8 +216,8 @@ def train_baseline_models(config: TrainingConfig | None = None) -> dict[str, obj
             "label_encoder": label_encoder,
             "model_name": best_model_name,
             "positive_label": config.positive_label,
-            "ai_chunk_threshold": 0.65,
-            "overall_warning_threshold": 0.70,
+            "ai_chunk_threshold": 0.50,
+            "overall_warning_threshold": 0.55,
             "training_rows": int(len(train_df)),
             "test_rows": int(len(test_df)),
             "class_balance": calculate_class_balance(features),
@@ -222,8 +253,8 @@ def train_baseline_models(config: TrainingConfig | None = None) -> dict[str, obj
         "test_rows": int(len(test_df)),
         "class_balance": calculate_class_balance(features),
         "positive_label": config.positive_label,
-        "ai_chunk_threshold": 0.65,
-        "overall_warning_threshold": 0.70,
+        "ai_chunk_threshold": 0.50,
+        "overall_warning_threshold": 0.55,
         "best_model_metrics": comparison.iloc[0].to_dict(),
         "all_model_metrics": comparison.to_dict(orient="records"),
     }
@@ -251,4 +282,4 @@ if __name__ == "__main__":
     print(f"Test rows: {result['test_rows']}")
     print(f"Feature count: {result['feature_count']}")
     print(f"Saved model: {result['model_path']}")
-    print(f"Saved summary: {result['summary_path']}")
+    print(f"Comparison:\n{result['comparison']}")

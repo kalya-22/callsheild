@@ -1,45 +1,52 @@
 {
-  "best_model_name": "logistic_regression",
+  "best_model_name": "extra_trees",
   "model_path": "C:\\Users\\kalya\\Documents\\Codex\\2026-07-03\\su\\CallShield\\ml\\models\\baseline_model.joblib",
-  "feature_count": 38,
-  "total_rows": 286,
-  "train_rows": 240,
-  "test_rows": 46,
+  "feature_count": 60,
+  "total_rows": 383,
+  "train_rows": 294,
+  "test_rows": 89,
   "class_balance": {
-    "ai_generated": 105,
-    "human": 181
+    "ai_generated": 178,
+    "human": 205
   },
   "positive_label": "ai_generated",
-  "ai_chunk_threshold": 0.65,
-  "overall_warning_threshold": 0.7,
+  "ai_chunk_threshold": 0.5,
+  "overall_warning_threshold": 0.55,
   "best_model_metrics": {
-    "model": "logistic_regression",
-    "accuracy": 1.0,
-    "precision": 1.0,
+    "model": "extra_trees",
+    "accuracy": 0.8876404494382022,
+    "precision": 0.8245614035087719,
     "recall": 1.0,
-    "f1": 1.0
+    "f1": 0.9038461538461539
   },
   "all_model_metrics": [
     {
-      "model": "logistic_regression",
-      "accuracy": 1.0,
-      "precision": 1.0,
+      "model": "extra_trees",
+      "accuracy": 0.8876404494382022,
+      "precision": 0.8245614035087719,
       "recall": 1.0,
-      "f1": 1.0
+      "f1": 0.9038461538461539
     },
     {
-      "model": "svm_rbf",
-      "accuracy": 1.0,
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0
+      "model": "voting_ensemble",
+      "accuracy": 0.8426966292134831,
+      "precision": 0.8113207547169812,
+      "recall": 0.9148936170212766,
+      "f1": 0.86
     },
     {
       "model": "random_forest",
-      "accuracy": 1.0,
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0
+      "accuracy": 0.8314606741573034,
+      "precision": 0.8076923076923077,
+      "recall": 0.8936170212765957,
+      "f1": 0.8484848484848485
+    },
+    {
+      "model": "gradient_boosting",
+      "accuracy": 0.8202247191011236,
+      "precision": 0.803921568627451,
+      "recall": 0.8723404255319149,
+      "f1": 0.8367346938775511
     }
   ]
 }

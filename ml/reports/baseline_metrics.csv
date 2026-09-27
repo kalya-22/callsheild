@@ -1,2 +1,2 @@
 model,accuracy,precision,recall,f1
-logistic_regression,1.0,1.0,1.0,1.0
+extra_trees,0.8876404494382022,0.8245614035087719,1.0,0.9038461538461539

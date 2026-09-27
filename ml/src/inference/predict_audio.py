@@ -125,42 +125,8 @@ def extract_features_for_chunk_from_absolute_path(
     chunk_path = Path(str(row["chunk_path"]))
     audio, sr = librosa.load(chunk_path, sr=config.sample_rate, mono=True)
 
-    mfcc = librosa.feature.mfcc(
-        y=audio,
-        sr=sr,
-        n_mfcc=config.n_mfcc,
-        hop_length=config.hop_length,
-    )
-    spectral_centroid = librosa.feature.spectral_centroid(
-        y=audio,
-        sr=sr,
-        hop_length=config.hop_length,
-    )[0]
-    zcr = librosa.feature.zero_crossing_rate(
-        y=audio,
-        frame_length=config.frame_length,
-        hop_length=config.hop_length,
-    )[0]
-    rms = librosa.feature.rms(
-        y=audio,
-        frame_length=config.frame_length,
-        hop_length=config.hop_length,
-    )[0]
-    f0 = librosa.yin(
-        audio,
-        fmin=config.fmin,
-        fmax=config.fmax,
-        sr=sr,
-        frame_length=config.frame_length,
-        hop_length=config.hop_length,
-    )
-
-    from ml.src.features.extract_audio_features import (
-        estimate_jitter,
-        estimate_shimmer,
-        safe_mean,
-        safe_std,
-    )
+    from ml.src.features.extract_audio_features import extract_features_from_audio_array
+    numeric_features = extract_features_from_audio_array(audio, sr, config)
 
     features: dict[str, object] = {
         "chunk_id": row["chunk_id"],
@@ -169,24 +135,8 @@ def extract_features_for_chunk_from_absolute_path(
         "chunk_path": row["chunk_path"],
         "duration_seconds": row["duration_seconds"],
         "sample_rate": sr,
-        "pitch_mean": safe_mean(f0),
-        "pitch_std": safe_std(f0),
-        "spectral_centroid_mean": safe_mean(spectral_centroid),
-        "spectral_centroid_std": safe_std(spectral_centroid),
-        "zcr_mean": safe_mean(zcr),
-        "zcr_std": safe_std(zcr),
-        "rms_mean": safe_mean(rms),
-        "rms_std": safe_std(rms),
-        "jitter": estimate_jitter(f0),
-        "shimmer": estimate_shimmer(rms),
     }
-
-    for index in range(config.n_mfcc):
-        mfcc_values = mfcc[index]
-        feature_number = index + 1
-        features[f"mfcc_{feature_number}_mean"] = safe_mean(mfcc_values)
-        features[f"mfcc_{feature_number}_std"] = safe_std(mfcc_values)
-
+    features.update(numeric_features)
     return features
 
 
