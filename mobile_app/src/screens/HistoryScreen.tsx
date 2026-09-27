@@ -40,94 +40,98 @@ export function HistoryScreen({ onSelectReport }: HistoryScreenProps) {
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
 
+  function isChunkFile(name?: string): boolean {
+    if (!name) return false;
+    const lower = name.toLowerCase();
+    return (
+      lower.startsWith('live_chunk_') ||
+      lower.startsWith('live_call_') ||
+      lower.startsWith('live_interceptor_') ||
+      lower.startsWith('chunk_') ||
+      lower.includes('_chunk') ||
+      lower.includes('chunk #')
+    );
+  }
+
   useEffect(() => {
     async function fetchHistory() {
       setLoading(true);
       try {
         const items: HistoryItem[] = [];
 
-        // Source 1: Local AsyncStorage (offline fallback)
+        // Source 1: Local Call Sessions (from actual completed calls & reports)
         try {
           const stored = await CallHistoryStorage.getCallHistory();
           if (stored && stored.length > 0) {
-            const localItems = stored.map((rec, index) => {
-              const isScam = rec.risk === 'scam' || rec.predicted_label === 'ai_generated';
-              const isSuspicious = rec.risk === 'suspicious' || rec.predicted_label === 'insufficient_audio';
-              const conf = rec.confidence || 85;
-              const aiProb = isScam ? conf / 100 : isSuspicious ? 0.45 : Number(((100 - conf) / 100).toFixed(2));
+            const localItems = stored
+              .filter((rec) => !isChunkFile(rec.number) && !isChunkFile(rec.name))
+              .map((rec, index) => {
+                const isScam = rec.risk === 'scam' || rec.predicted_label === 'ai_generated';
+                const isSuspicious = rec.risk === 'suspicious' || rec.predicted_label === 'insufficient_audio';
+                const conf = rec.confidence || (isScam ? 80 : 88);
+                const aiProb = isScam ? conf / 100 : isSuspicious ? 0.45 : Number(((100 - conf) / 100).toFixed(2));
 
-              return {
-                prediction_id: parseInt(rec.id) || Date.now() + index,
-                filename: rec.number || rec.name || 'Incoming Call',
-                predicted_label: rec.predicted_label || (isScam ? 'ai_generated' : isSuspicious ? 'insufficient_audio' : 'human'),
-                ai_probability: aiProb,
-                risk_level: isScam ? 'high' : isSuspicious ? 'medium' : 'low',
-                created_at: rec.timestamp || new Date().toISOString(),
-                confidence_percent: conf,
-                source: 'local' as const,
-              };
-            });
+                return {
+                  prediction_id: parseInt(rec.id) || Date.now() + index,
+                  filename: rec.number || rec.name || 'Incoming Call',
+                  predicted_label: rec.predicted_label || (isScam ? 'ai_generated' : isSuspicious ? 'insufficient_audio' : 'human'),
+                  ai_probability: aiProb,
+                  risk_level: isScam ? 'high' : isSuspicious ? 'medium' : 'low',
+                  created_at: rec.timestamp || new Date().toISOString(),
+                  confidence_percent: conf,
+                  source: 'local' as const,
+                };
+              });
             items.push(...localItems);
           }
         } catch { /* local storage unavailable */ }
 
-        // Source 2: Supabase live_call_reports (cloud phone call history)
+        // Source 2: Supabase live_call_reports (completed call session reports)
         try {
           const cloudCalls = await SupabaseService.getLiveCallReports(50);
           if (cloudCalls && cloudCalls.length > 0) {
-            const cloudCallItems: HistoryItem[] = cloudCalls.map((r: any, idx: number) => {
-              const isScam = r.risk_level === 'high' || r.final_verdict === 'ai_generated';
-              const isSuspicious = r.risk_level === 'medium' || r.final_verdict === 'insufficient_audio';
-              const conf = r.overall_risk_score || 85;
-              const aiProb = isScam ? conf / 100 : isSuspicious ? 0.45 : Number(((100 - conf) / 100).toFixed(2));
+            const cloudCallItems: HistoryItem[] = cloudCalls
+              .filter((r: any) => !isChunkFile(r.phone_number))
+              .map((r: any, idx: number) => {
+                const isScam = r.risk_level === 'high' || r.final_verdict === 'ai_generated';
+                const isSuspicious = r.risk_level === 'medium' || r.final_verdict === 'insufficient_audio';
+                const conf = r.overall_risk_score || (isScam ? 80 : 88);
+                const aiProb = isScam ? conf / 100 : isSuspicious ? 0.45 : Number(((100 - conf) / 100).toFixed(2));
 
-              return {
-                prediction_id: r.id ?? Date.now() + idx + 1000,
-                filename: r.phone_number || 'Live Call',
-                predicted_label: r.final_verdict || (isScam ? 'ai_generated' : isSuspicious ? 'insufficient_audio' : 'human'),
-                ai_probability: aiProb,
-                risk_level: isScam ? 'high' : isSuspicious ? 'medium' : 'low',
-                created_at: r.created_at || new Date().toISOString(),
-                confidence_percent: conf,
-                source: 'cloud_call' as const,
-              };
-            });
+                return {
+                  prediction_id: r.id ?? Date.now() + idx + 1000,
+                  filename: r.phone_number || 'Live Call',
+                  predicted_label: r.final_verdict || (isScam ? 'ai_generated' : isSuspicious ? 'insufficient_audio' : 'human'),
+                  ai_probability: aiProb,
+                  risk_level: isScam ? 'high' : isSuspicious ? 'medium' : 'low',
+                  created_at: r.created_at || new Date().toISOString(),
+                  confidence_percent: conf,
+                  source: 'cloud_call' as const,
+                };
+              });
             items.push(...cloudCallItems);
           }
         } catch { /* Supabase live_call_reports unavailable */ }
 
-        // Source 3: Supabase prediction_history (cloud audio upload history)
-        try {
-          const cloudPreds = await SupabaseService.getPredictionHistory(50);
-          if (cloudPreds && cloudPreds.length > 0) {
-            const cloudPredItems: HistoryItem[] = (cloudPreds as any[]).map((d, idx) => ({
-              prediction_id: d.id ?? Date.now() + idx + 2000,
-              filename: d.filename,
-              predicted_label: d.predicted_label,
-              ai_probability: d.ai_probability,
-              risk_level: d.risk_level,
-              created_at: d.created_at,
-              confidence_percent: Math.round(d.ai_probability * 100),
-              source: 'cloud_prediction' as const,
-            }));
-            items.push(...cloudPredItems);
-          }
-        } catch { /* Supabase prediction_history unavailable */ }
-
-        // Source 4: Backend API history (prediction_history via FastAPI)
+        // Source 3: Full Uploaded Audio Files (excludes streaming chunks)
         try {
           const apiData = await CallShieldApi.getHistory(50);
           if (apiData && apiData.length > 0) {
-            const apiItems: HistoryItem[] = apiData.map((d: any) => ({
-              prediction_id: d.prediction_id,
-              filename: d.filename,
-              predicted_label: d.predicted_label,
-              ai_probability: d.ai_probability,
-              risk_level: d.risk_level,
-              created_at: d.created_at,
-              confidence_percent: Math.round((d.ai_confidence_percent || d.ai_probability * 100) ?? 94),
-              source: 'api' as const,
-            }));
+            const nonChunkFiles = apiData.filter((d: any) => !isChunkFile(d.filename));
+            const apiItems: HistoryItem[] = nonChunkFiles.map((d: any) => {
+              const isScam = d.predicted_label === 'ai_generated' || d.risk_level === 'high';
+              const conf = Math.round((d.ai_confidence_percent || d.ai_probability * 100) ?? 85);
+              return {
+                prediction_id: d.prediction_id,
+                filename: d.filename,
+                predicted_label: d.predicted_label,
+                ai_probability: d.ai_probability,
+                risk_level: d.risk_level,
+                created_at: d.created_at,
+                confidence_percent: conf,
+                source: 'api' as const,
+              };
+            });
             items.push(...apiItems);
           }
         } catch { /* Backend offline */ }

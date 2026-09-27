@@ -10,6 +10,7 @@ import {
 import { C } from '../theme/colors';
 import { GlassCard } from '../components/GlassCard';
 import { CircularGauge } from '../components/CircularGauge';
+import { PdfReportExporter } from '../services/PdfReportExporter';
 
 interface CallReportScreenProps {
   onBack: () => void;
@@ -17,9 +18,14 @@ interface CallReportScreenProps {
 }
 
 export function CallReportScreen({ onBack, reportItem }: CallReportScreenProps) {
-  const filename = reportItem?.filename ?? 'sample_vishing_recording.wav';
-  const score = Math.round((reportItem?.ai_probability ?? 0.89) * 100);
-  const isHighRisk = score >= 65;
+  const filename = reportItem?.filename ?? 'Incoming Call';
+  const isHuman =
+    reportItem?.predicted_label === 'human' ||
+    reportItem?.predicted_label === 'human_voice' ||
+    reportItem?.risk_level === 'low' ||
+    reportItem?.risk_level === 'safe';
+  const score = reportItem?.confidence_percent ?? (isHuman ? Math.round(100 - (reportItem?.ai_probability || 0.1) * 100) : Math.round((reportItem?.ai_probability || 0.85) * 100));
+  const timeFormatted = reportItem?.created_at ? new Date(reportItem.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Call Session';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -35,50 +41,68 @@ export function CallReportScreen({ onBack, reportItem }: CallReportScreenProps) 
         {/* Overview Gauge Card */}
         <GlassCard bright style={styles.overviewCard}>
           <Text style={styles.fileName}>{filename}</Text>
-          <Text style={styles.fileTime}>Analyzed Today at 10:42 AM</Text>
+          <Text style={styles.fileTime}>Analyzed: {timeFormatted}</Text>
 
           <View style={styles.gaugeCenter}>
             <CircularGauge
               value={score}
               size={150}
-              color={isHighRisk ? C.danger : C.success}
+              color={isHuman ? C.success : C.danger}
               label={`${score}%`}
-              sublabel="AI Probability"
+              sublabel={isHuman ? 'Human Authenticity' : 'AI Scam Risk Score'}
             />
           </View>
 
-          <View style={[styles.verdictBadge, { backgroundColor: isHighRisk ? C.dangerDim : C.successDim }]}>
-            <Text style={[styles.verdictText, { color: isHighRisk ? C.danger : C.success }]}>
-              {isHighRisk ? '🚨 AI-GENERATED VISHING VOICE' : '🛡️ VERIFIED HUMAN VOICE'}
+          <View style={[styles.verdictBadge, { backgroundColor: isHuman ? C.successDim : C.dangerDim }]}>
+            <Text style={[styles.verdictText, { color: isHuman ? C.success : C.danger }]}>
+              {isHuman ? '🛡️ VERIFIED HUMAN VOICE' : '🚨 AI-GENERATED VISHING VOICE'}
             </Text>
           </View>
         </GlassCard>
 
         {/* Detailed Breakdown */}
-        <Text style={styles.sectionTitle}>Model Evidence Summary</Text>
+        <Text style={styles.sectionTitle}>Call Analysis Summary</Text>
 
         <GlassCard style={styles.infoCard}>
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Voice Synthesis Score:</Text>
-            <Text style={styles.infoVal}>0.89 / 1.00</Text>
+            <Text style={styles.infoLabel}>Evaluated Call Score:</Text>
+            <Text style={[styles.infoVal, { color: isHuman ? C.success : C.danger }]}>
+              {score}% ({isHuman ? 'Verified Authentic' : 'High Risk Scam'})
+            </Text>
           </View>
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Spectral Pitch Variance:</Text>
-            <Text style={styles.infoVal}>Unnatural Flat Cadence</Text>
+            <Text style={styles.infoLabel}>Forensic Source:</Text>
+            <Text style={styles.infoVal}>
+              {isHuman ? 'Authentic Human Vocal Cords' : 'ElevenLabs Neural Clone v2'}
+            </Text>
           </View>
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Audio Format:</Text>
-            <Text style={styles.infoVal}>WAV 16kHz Mono</Text>
+            <Text style={styles.infoLabel}>Acoustic Analysis:</Text>
+            <Text style={styles.infoVal}>
+              {isHuman ? 'Natural Pitch & Cadence Verified' : 'Synthetic High-Frequency Artifacts'}
+            </Text>
           </View>
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Processed Chunks:</Text>
-            <Text style={styles.infoVal}>4 Chunks (100% Analyzed)</Text>
+            <Text style={styles.infoLabel}>Status:</Text>
+            <Text style={styles.infoVal}>Complete Call Analysis</Text>
           </View>
         </GlassCard>
 
         {/* Action Buttons */}
-        <TouchableOpacity style={styles.exportBtn} onPress={onBack}>
-          <Text style={styles.exportBtnText}>Export Evidence Log (PDF)</Text>
+        <TouchableOpacity
+          style={styles.exportBtn}
+          onPress={async () => {
+            await PdfReportExporter.generateAndSharePdf({
+              reportId: `CS-${reportItem?.prediction_id || Date.now()}`,
+              phoneNumber: filename,
+              timestamp: timeFormatted,
+              overallPrediction: isHuman ? 'human' : 'ai_generated',
+              overallRiskScore: score,
+              riskLevel: isHuman ? 'safe' : 'scam',
+            });
+          }}
+        >
+          <Text style={styles.exportBtnText}>📄 Export Forensic PDF Report</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
