@@ -103,18 +103,22 @@ export class CallLiveStreamEngine {
         }),
       });
 
-      let aiProb = 0.85;
-      let label: 'ai_generated' | 'human' = 'ai_generated';
+      let aiProb = 0.0;
+      let label: 'ai_generated' | 'human' | 'insufficient_audio' = 'insufficient_audio';
 
       if (response.ok) {
         const result = await response.json();
-        aiProb = result.ai_probability ?? 0.85;
-        label = result.predicted_label === 'human' ? 'human' : 'ai_generated';
+        aiProb = result.ai_probability ?? 0.0;
+        label = result.predicted_label === 'human'
+          ? 'human'
+          : result.predicted_label === 'ai_generated'
+          ? 'ai_generated'
+          : 'insufficient_audio';
       }
 
-      const confPercent = Math.round(aiProb * 100);
+      const confPercent = label === 'insufficient_audio' ? 0 : Math.round(aiProb * 100);
       const riskLevel: ChunkAnalysisItem['riskLevel'] =
-        confPercent >= 65 ? 'scam' : confPercent >= 40 ? 'suspicious' : 'safe';
+        label === 'insufficient_audio' ? 'safe' : confPercent >= 65 ? 'scam' : confPercent >= 40 ? 'suspicious' : 'safe';
 
       const newItem: ChunkAnalysisItem = {
         chunkId: currentChunkId,

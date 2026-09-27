@@ -72,17 +72,38 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
 
     // Subscribe to native call interceptor stream
     callInterceptorService.setOnChunkListener((result, callerNumber) => {
-      const rawProb = typeof result.ai_probability === 'number' ? result.ai_probability : 0.05;
+      const isInsufficient =
+        result.predicted_label === 'insufficient_audio' ||
+        result.raw_predicted_label === 'insufficient_audio' ||
+        (typeof result.audio_rms === 'number' && result.audio_rms < 0.004);
+
+      if (isInsufficient) {
+        const newChunkItem: ChunkAnalysisItem = {
+          chunkId: result.chunk_id || Date.now(),
+          timeLabel: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          predictedLabel: 'insufficient_audio',
+          riskLevel: 'safe',
+          confidencePercent: 0,
+          aiProbability: 0,
+        };
+
+        timelineRef.current = [newChunkItem, ...timelineRef.current];
+        setChunkTimeline([...timelineRef.current]);
+        setAudioNotice('Listening for caller voice... (Insufficient audio / silence)');
+        return;
+      }
+
+      // Live Speech Detected
+      const rawProb = typeof result.ai_probability === 'number' ? result.ai_probability : 0.06;
       const prob = Number(rawProb.toFixed(4));
       const isAi = result.predicted_label === 'ai_generated' || prob >= 0.70;
       
-      // Dynamic real-time confidence calculation from actual acoustic signals
       const conf = isAi ? Math.round(prob * 100) : Math.round((1 - prob) * 100);
       const predictedLabel: 'ai_generated' | 'human' = isAi ? 'ai_generated' : 'human';
       const risk: 'safe' | 'suspicious' | 'scam' = isAi ? 'scam' : prob >= 0.40 ? 'suspicious' : 'safe';
 
       const newChunkItem: ChunkAnalysisItem = {
-        chunkId: Date.now(),
+        chunkId: result.chunk_id || Date.now(),
         timeLabel: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         predictedLabel,
         riskLevel: risk,
@@ -204,26 +225,27 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
     const validTotal = validChunks.length;
 
     const aiChunks = validChunks.filter((chunk) => chunk.predictedLabel === 'ai_generated');
-    const isOverallScam = aiChunks.length >= Math.ceil(Math.max(1, validTotal) / 2);
+    const isOverallScam = validTotal > 0 && aiChunks.length >= Math.ceil(validTotal / 2);
+    const isInsufficient = validTotal === 0;
 
-    let averageConfidence = 95;
-    if (validTotal > 0) {
-      if (isOverallScam) {
-        averageConfidence = Math.round(
-          aiChunks.reduce((sum, chunk) => sum + chunk.confidencePercent, 0) / Math.max(1, aiChunks.length)
-        );
-      } else {
-        averageConfidence = Math.round(
-          validChunks.reduce((sum, chunk) => sum + chunk.confidencePercent, 0) / validTotal
-        );
-      }
+    let averageConfidence = 0;
+    if (isInsufficient) {
+      averageConfidence = 0;
+    } else if (isOverallScam) {
+      averageConfidence = Math.round(
+        aiChunks.reduce((sum, chunk) => sum + chunk.confidencePercent, 0) / Math.max(1, aiChunks.length)
+      );
+    } else {
+      averageConfidence = Math.round(
+        validChunks.reduce((sum, chunk) => sum + chunk.confidencePercent, 0) / validTotal
+      );
     }
 
     const m = Math.floor(durationSeconds / 60).toString().padStart(2, '0');
     const s = (durationSeconds % 60).toString().padStart(2, '0');
 
     return {
-      overallPrediction: isOverallScam ? 'ai_generated' : 'human',
+      overallPrediction: isInsufficient ? 'insufficient_audio' : isOverallScam ? 'ai_generated' : 'human',
       overallRiskScore: averageConfidence,
       confidencePercent: averageConfidence,
       totalChunksAnalyzed: Math.max(1, total),
@@ -440,7 +462,9 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
                   styles.timelineBadge,
                   {
                     backgroundColor:
-                      item.riskLevel === 'scam'
+                      item.predictedLabel === 'insufficient_audio'
+                        ? 'rgba(100, 116, 139, 0.25)'
+                        : item.riskLevel === 'scam'
                         ? C.dangerDim
                         : item.riskLevel === 'suspicious'
                         ? C.warningDim
@@ -453,7 +477,9 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
                     styles.timelineBadgeText,
                     {
                       color:
-                        item.riskLevel === 'scam'
+                        item.predictedLabel === 'insufficient_audio'
+                          ? C.textMuted
+                          : item.riskLevel === 'scam'
                           ? C.danger
                           : item.riskLevel === 'suspicious'
                           ? C.warning
@@ -461,7 +487,9 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
                     },
                   ]}
                 >
-                  {item.predictedLabel.toUpperCase()} ({item.confidencePercent}%)
+                  {item.predictedLabel === 'insufficient_audio'
+                    ? 'INSUFFICIENT AUDIO'
+                    : `${item.predictedLabel.toUpperCase()} (${item.confidencePercent}%)`}
                 </Text>
               </View>
             </GlassCard>

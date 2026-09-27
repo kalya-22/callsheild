@@ -30,7 +30,8 @@ export function LiveCallReportModal({ visible, reportData, phoneNumber, onClose 
   if (!visible || !reportData) return null;
 
   const isScam = reportData.overallPrediction === 'ai_generated';
-  const riskColor = isScam ? C.danger : C.success;
+  const isInsufficient = reportData.overallPrediction === 'insufficient_audio';
+  const riskColor = isScam ? C.danger : isInsufficient ? C.textMuted : C.success;
   const callerTarget = phoneNumber || 'Incoming Live Call Session';
 
   async function handleExportPdf() {
@@ -39,8 +40,8 @@ export function LiveCallReportModal({ visible, reportData, phoneNumber, onClose 
       phoneNumber: callerTarget,
       timestamp: reportData.timestamp || new Date().toLocaleString(),
       overallPrediction: reportData.overallPrediction,
-      overallRiskScore: Math.round(reportData.overallRiskScore || reportData.confidencePercent || 92),
-      riskLevel: isScam ? 'high' : 'low',
+      overallRiskScore: Math.round(reportData.overallRiskScore || reportData.confidencePercent || 0),
+      riskLevel: isScam ? 'high' : isInsufficient ? 'low' : 'low',
       durationFormatted: reportData.callDurationFormatted,
       timeline: reportData.detectionTimeline || [],
     });
@@ -86,25 +87,35 @@ export function LiveCallReportModal({ visible, reportData, phoneNumber, onClose 
           <GlassCard bright style={[styles.verdictCard, { borderColor: riskColor }] as any}>
             <Text style={styles.verdictTag}>COMBINED OVERALL ANALYSIS RESULT</Text>
             <Text style={[styles.verdictTitle, { color: riskColor }]}>
-              {isScam ? '🚨 AI-Generated Voice Clone' : '🛡️ Authentic Human Voice'}
+              {isScam
+                ? '🚨 AI-Generated Voice Clone'
+                : isInsufficient
+                ? '⚪ Insufficient Audio Recorded'
+                : '🛡️ Authentic Human Voice'}
             </Text>
             <Text style={styles.verdictSub}>
               {isScam
                 ? 'High probability of vishing scam. Speech synthesis artifacts detected.'
+                : isInsufficient
+                ? 'No audible speech detected during this call session (silence / low volume).'
                 : 'Natural pitch, cadence, and human vocal acoustics verified.'}
             </Text>
           </GlassCard>
 
           {/* AI Model Forensic Attribution Card */}
-          <GlassCard style={{ marginBottom: 16, borderLeftWidth: 4, borderLeftColor: C.accent }}>
-            <Text style={{ fontSize: 11, fontWeight: '800', color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>
+          <GlassCard style={{ marginBottom: 16, borderLeftWidth: 4, borderLeftColor: isInsufficient ? C.textMuted : C.accent }}>
+            <Text style={{ fontSize: 11, fontWeight: '800', color: isInsufficient ? C.textMuted : C.accent, textTransform: 'uppercase', marginBottom: 4 }}>
               🧬 AI GENERATOR FORENSIC ATTRIBUTION
             </Text>
             <Text style={{ fontSize: 16, fontWeight: '800', color: C.text }}>
-              {isScam ? 'ElevenLabs Neural Voice Clone v2' : 'Authentic Human Vocal Cords'}
+              {isScam
+                ? 'ElevenLabs Neural Voice Clone v2'
+                : isInsufficient
+                ? 'No Active Speech Detected'
+                : 'Authentic Human Vocal Cords'}
             </Text>
             <Text style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>
-              Attribution Match: <Text style={{ color: C.accent, fontWeight: '700' }}>{isScam ? '94.2%' : '98.8%'}</Text> | Method: <Text style={{ color: C.text, fontWeight: '600' }}>{isScam ? 'Text-to-Speech (TTS)' : 'Human Speech'}</Text>
+              Attribution Match: <Text style={{ color: isInsufficient ? C.textMuted : C.accent, fontWeight: '700' }}>{isInsufficient ? '0%' : isScam ? '94.2%' : '98.8%'}</Text> | Method: <Text style={{ color: C.text, fontWeight: '600' }}>{isInsufficient ? 'Silence / Background' : isScam ? 'Text-to-Speech (TTS)' : 'Human Speech'}</Text>
             </Text>
           </GlassCard>
 
@@ -115,14 +126,14 @@ export function LiveCallReportModal({ visible, reportData, phoneNumber, onClose 
               size={140}
               color={riskColor}
               label={`${reportData.overallRiskScore}%`}
-              sublabel={isScam ? 'AI Scam Risk Score' : 'Human Voice Authenticity'}
+              sublabel={isScam ? 'AI Scam Risk Score' : isInsufficient ? 'Insufficient Audio' : 'Human Voice Authenticity'}
             />
 
             {/* Metrics Snapshot Grid */}
             <View style={styles.metricsGrid}>
               <View style={styles.metricItem}>
                 <Text style={styles.metricVal}>{reportData.confidencePercent}%</Text>
-                <Text style={styles.metricLabel}>{isScam ? 'AI Risk' : 'Authenticity'}</Text>
+                <Text style={styles.metricLabel}>{isScam ? 'AI Risk' : isInsufficient ? 'Speech Level' : 'Authenticity'}</Text>
               </View>
 
               <View style={styles.metricItem}>
@@ -152,7 +163,9 @@ export function LiveCallReportModal({ visible, reportData, phoneNumber, onClose 
                   styles.riskBadge,
                   {
                     backgroundColor:
-                      chunk.riskLevel === 'scam'
+                      chunk.predictedLabel === 'insufficient_audio'
+                        ? 'rgba(100, 116, 139, 0.25)'
+                        : chunk.riskLevel === 'scam'
                         ? C.dangerDim
                         : chunk.riskLevel === 'suspicious'
                         ? C.warningDim
@@ -165,7 +178,9 @@ export function LiveCallReportModal({ visible, reportData, phoneNumber, onClose 
                     styles.riskBadgeText,
                     {
                       color:
-                        chunk.riskLevel === 'scam'
+                        chunk.predictedLabel === 'insufficient_audio'
+                          ? C.textMuted
+                          : chunk.riskLevel === 'scam'
                           ? C.danger
                           : chunk.riskLevel === 'suspicious'
                           ? C.warning
@@ -173,7 +188,9 @@ export function LiveCallReportModal({ visible, reportData, phoneNumber, onClose 
                     },
                   ]}
                 >
-                  {chunk.predictedLabel.toUpperCase()} ({chunk.confidencePercent}%)
+                  {chunk.predictedLabel === 'insufficient_audio'
+                    ? 'INSUFFICIENT AUDIO'
+                    : `${chunk.predictedLabel.toUpperCase()} (${chunk.confidencePercent}%)`}
                 </Text>
               </View>
             </GlassCard>

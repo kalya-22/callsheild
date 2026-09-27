@@ -30,7 +30,7 @@ class PredictionConfig:
     warning_threshold: float = 0.55
     live_ai_chunk_threshold: float = 0.75
     live_warning_threshold: float = 0.7
-    min_live_rms: float = 0.00000001
+    min_live_rms: float = 0.004
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -276,25 +276,23 @@ def predict_live_audio_chunk(
     min_samples = int(config.min_chunk_duration_seconds * sr)
     max_samples = int(config.chunk_duration_seconds * sr)
     if len(audio) < min_samples or rms < config.min_live_rms:
-        # Dynamic low-energy background acoustic noise baseline calculated from actual microphone energy
-        dynamic_score = float(np.clip(rms * 100.0, 0.01, 0.15))
         return {
             "chunk_id": chunk_id,
-            "predicted_label": "human",
-            "raw_predicted_label": "ambient_audio",
-            "ai_probability": round(dynamic_score, 4),
-            "ai_confidence_percent": round((1.0 - dynamic_score) * 100, 2),
+            "predicted_label": "insufficient_audio",
+            "raw_predicted_label": "insufficient_audio",
+            "ai_probability": 0.0,
+            "ai_confidence_percent": 0.0,
             "risk_level": "safe",
             "warning": False,
             "chunk_count": 1,
-            "current_chunk_risk": round(dynamic_score, 4),
-            "current_chunk_risk_percent": round(dynamic_score * 100, 2),
-            "final_call_verdict": "human",
+            "current_chunk_risk": 0.0,
+            "current_chunk_risk_percent": 0.0,
+            "final_call_verdict": "insufficient_audio",
             "audio_rms": round(rms, 6),
-            "attributed_generator": "Authentic Human Vocal Cords",
-            "attribution_confidence": round(1.0 - dynamic_score, 2),
-            "synthesis_technique": "Natural Human Vocalization",
-            "spectral_cutoff_khz": 7.8,
+            "attributed_generator": "No Speech Detected",
+            "attribution_confidence": 0.0,
+            "synthesis_technique": "Insufficient Audio / Silence",
+            "spectral_cutoff_khz": 0.0,
         }
 
     if len(audio) > max_samples:
