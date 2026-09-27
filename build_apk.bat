@@ -20,8 +20,9 @@ if %errorlevel% neq 0 (
 echo.
 echo [2/2] Compiling Android APK with Android Studio toolchain...
 cd android
-if exist "C:\Program Files\Android\Android Studio\jbr" (
-    set "JAVA_HOME=C:\Program Files\Android\Android Studio\jbr"
+if exist "C:\Users\kalya\Androidd Studiooo\android-studio\jbr" (
+    set "JAVA_HOME=C:\Users\kalya\Androidd Studiooo\android-studio\jbr"
+    set "PATH=C:\Users\kalya\Androidd Studiooo\android-studio\jbr\bin;%PATH%"
 )
 
 call gradlew.bat assembleDebug
