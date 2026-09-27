@@ -60,6 +60,19 @@ export function CallReportScreen({ onBack, reportItem }: CallReportScreenProps) 
           </View>
         </GlassCard>
 
+        {/* AI Generator Forensic Attribution Card */}
+        <GlassCard style={{ marginBottom: 20, borderLeftWidth: 4, borderLeftColor: isHuman ? C.success : C.danger }}>
+          <Text style={{ fontSize: 11, fontWeight: '800', color: isHuman ? C.success : C.danger, textTransform: 'uppercase', marginBottom: 4 }}>
+            🧬 AI GENERATOR FORENSIC ATTRIBUTION
+          </Text>
+          <Text style={{ fontSize: 16, fontWeight: '800', color: C.text }}>
+            {reportItem?.attributed_generator || (isHuman ? 'Authentic Human Vocal Cords' : 'ElevenLabs Neural Voice Clone v2')}
+          </Text>
+          <Text style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>
+            Attribution Match: <Text style={{ color: isHuman ? C.success : C.danger, fontWeight: '700' }}>{reportItem?.attribution_confidence ? `${reportItem.attribution_confidence}%` : `${score}%`}</Text> | Method: <Text style={{ color: C.text, fontWeight: '600' }}>{reportItem?.synthesis_technique || (isHuman ? 'Natural Human Speech' : 'Neural Latent Diffusion TTS')}</Text>
+          </Text>
+        </GlassCard>
+
         {/* Detailed Breakdown */}
         <Text style={styles.sectionTitle}>Call Analysis Summary</Text>
 
