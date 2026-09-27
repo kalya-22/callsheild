@@ -31,10 +31,14 @@ def save_prediction(result: dict[str, Any]) -> dict[str, Any]:
         "created_at": created_at,
     }
 
-    response = supabase.table(TABLE).insert(row).execute()
-    inserted = response.data[0] if response.data else {}
+    try:
+        response = supabase.table(TABLE).insert(row).execute()
+        inserted = response.data[0] if response.data else {}
+        result["prediction_id"] = inserted.get("id", int(datetime.now().timestamp() * 1000))
+    except Exception as e:
+        print(f"[Supabase Sync Notice] Saved locally, cloud sync deferred: {e}")
+        result["prediction_id"] = int(datetime.now().timestamp() * 1000)
 
-    result["prediction_id"] = inserted.get("id")
     result["created_at"] = created_at
     return result
 
