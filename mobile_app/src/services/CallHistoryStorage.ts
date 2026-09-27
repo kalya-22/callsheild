@@ -50,8 +50,8 @@ export class CallHistoryStorage {
           number: r.phone_number || 'Unknown',
           time: r.created_at ? new Date(r.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently',
           risk: isScam ? 'scam' : isSuspicious ? 'suspicious' : 'safe',
-          confidence: Math.round(r.overall_risk_score || (isScam ? 94 : 10)),
-          predicted_label: r.final_verdict,
+          confidence: Math.round(r.overall_risk_score || 85),
+          predicted_label: r.final_verdict || (isScam ? 'ai_generated' : isSuspicious ? 'insufficient_audio' : 'human'),
           timestamp: r.created_at,
         };
       });

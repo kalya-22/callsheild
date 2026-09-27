@@ -50,16 +50,23 @@ export function HistoryScreen({ onSelectReport }: HistoryScreenProps) {
         try {
           const stored = await CallHistoryStorage.getCallHistory();
           if (stored && stored.length > 0) {
-            const localItems = stored.map((rec, index) => ({
-              prediction_id: parseInt(rec.id) || Date.now() + index,
-              filename: rec.number || rec.name || 'Incoming Call',
-              predicted_label: rec.predicted_label || (rec.risk === 'scam' ? 'ai_generated' : 'human'),
-              ai_probability: (rec.confidence || 94) / 100,
-              risk_level: rec.risk === 'scam' ? 'high' : rec.risk === 'suspicious' ? 'medium' : 'low',
-              created_at: rec.timestamp || new Date().toISOString(),
-              confidence_percent: rec.confidence || 94,
-              source: 'local' as const,
-            }));
+            const localItems = stored.map((rec, index) => {
+              const isScam = rec.risk === 'scam' || rec.predicted_label === 'ai_generated';
+              const isSuspicious = rec.risk === 'suspicious' || rec.predicted_label === 'insufficient_audio';
+              const conf = rec.confidence || 85;
+              const aiProb = isScam ? conf / 100 : isSuspicious ? 0.45 : Number(((100 - conf) / 100).toFixed(2));
+
+              return {
+                prediction_id: parseInt(rec.id) || Date.now() + index,
+                filename: rec.number || rec.name || 'Incoming Call',
+                predicted_label: rec.predicted_label || (isScam ? 'ai_generated' : isSuspicious ? 'insufficient_audio' : 'human'),
+                ai_probability: aiProb,
+                risk_level: isScam ? 'high' : isSuspicious ? 'medium' : 'low',
+                created_at: rec.timestamp || new Date().toISOString(),
+                confidence_percent: conf,
+                source: 'local' as const,
+              };
+            });
             items.push(...localItems);
           }
         } catch { /* local storage unavailable */ }
@@ -68,16 +75,23 @@ export function HistoryScreen({ onSelectReport }: HistoryScreenProps) {
         try {
           const cloudCalls = await SupabaseService.getLiveCallReports(50);
           if (cloudCalls && cloudCalls.length > 0) {
-            const cloudCallItems: HistoryItem[] = cloudCalls.map((r: any, idx: number) => ({
-              prediction_id: r.id ?? Date.now() + idx + 1000,
-              filename: r.phone_number || 'Live Call',
-              predicted_label: r.final_verdict || 'human',
-              ai_probability: (r.overall_risk_score || 0) / 100,
-              risk_level: r.risk_level || 'low',
-              created_at: r.created_at || new Date().toISOString(),
-              confidence_percent: r.overall_risk_score || 0,
-              source: 'cloud_call' as const,
-            }));
+            const cloudCallItems: HistoryItem[] = cloudCalls.map((r: any, idx: number) => {
+              const isScam = r.risk_level === 'high' || r.final_verdict === 'ai_generated';
+              const isSuspicious = r.risk_level === 'medium' || r.final_verdict === 'insufficient_audio';
+              const conf = r.overall_risk_score || 85;
+              const aiProb = isScam ? conf / 100 : isSuspicious ? 0.45 : Number(((100 - conf) / 100).toFixed(2));
+
+              return {
+                prediction_id: r.id ?? Date.now() + idx + 1000,
+                filename: r.phone_number || 'Live Call',
+                predicted_label: r.final_verdict || (isScam ? 'ai_generated' : isSuspicious ? 'insufficient_audio' : 'human'),
+                ai_probability: aiProb,
+                risk_level: isScam ? 'high' : isSuspicious ? 'medium' : 'low',
+                created_at: r.created_at || new Date().toISOString(),
+                confidence_percent: conf,
+                source: 'cloud_call' as const,
+              };
+            });
             items.push(...cloudCallItems);
           }
         } catch { /* Supabase live_call_reports unavailable */ }
@@ -138,13 +152,32 @@ export function HistoryScreen({ onSelectReport }: HistoryScreenProps) {
   }, []);
 
   const getRiskMeta = (item: HistoryItem) => {
-    if (item.risk_level === 'high' || item.ai_probability >= 0.7) {
+    const isHuman =
+      item.predicted_label === 'human' ||
+      item.predicted_label === 'human_voice' ||
+      item.risk_level === 'low' ||
+      item.risk_level === 'safe';
+    const isScam =
+      item.predicted_label === 'ai_generated' ||
+      item.risk_level === 'high' ||
+      item.risk_level === 'scam';
+    const isSuspicious =
+      item.predicted_label === 'insufficient_audio' ||
+      item.risk_level === 'medium' ||
+      item.risk_level === 'suspicious';
+
+    if (isHuman && !isScam) {
+      return { label: 'Safe', color: C.success, bg: C.successDim };
+    }
+    if (isScam) {
       return { label: 'Scam', color: C.danger, bg: C.dangerDim };
     }
-    if (item.risk_level === 'medium' || item.ai_probability >= 0.4) {
+    if (isSuspicious) {
       return { label: 'Suspicious', color: C.warning, bg: C.warningDim };
     }
-    return { label: 'Safe', color: C.success, bg: C.successDim };
+    return item.ai_probability >= 0.6
+      ? { label: 'Scam', color: C.danger, bg: C.dangerDim }
+      : { label: 'Safe', color: C.success, bg: C.successDim };
   };
 
   const filteredItems = historyItems.filter((item) => {
