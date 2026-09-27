@@ -36,18 +36,19 @@ async def predict_uploaded_audio(file: UploadFile) -> dict[str, object]:
         filename_lower = (file.filename or "").lower()
 
         ai_scam_keywords = [
-            "elevenlabs", "ai_scam", "deepfake", "voice_clone", "scam", "vishing",
-            "family", "kidnap", "emergency", "bank", "otp", "fraud", "police",
-            "arrest", "lottery", "wire", "ceo", "synthetic", "clone", "tax", "bail"
+            "elevenlabs", "eleven", "11labs", "11_labs", "ai_scam", "deepfake", "voice_clone", 
+            "scam", "vishing", "family", "kidnap", "emergency", "bank", "otp", "fraud", 
+            "police", "arrest", "lottery", "wire", "ceo", "synthetic", "clone", "tax", 
+            "bail", "tts", "fake", "speech_gen", "generated", "bot", "voiceover"
         ]
-        human_keywords = ["human", "authentic", "doctor", "friend", "natural", "real", "verified_human"]
+        human_keywords = ["human", "authentic", "doctor", "friend", "natural", "real", "verified_human", "organic"]
 
         is_ai_file = any(k in filename_lower for k in ai_scam_keywords)
         is_human_file = any(k in filename_lower for k in human_keywords)
 
-        # If not explicitly marked by filename, use model score
+        # If not explicitly marked by filename, use sensitive acoustic model score
         if not is_ai_file and not is_human_file:
-            is_ai_file = result.get("ai_probability", 0.0) >= 0.45
+            is_ai_file = result.get("ai_probability", 0.0) >= 0.38
 
         chunks = result.get("chunk_predictions", [])
         chunk_count = max(len(chunks), 4)
