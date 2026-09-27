@@ -46,6 +46,8 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
   const [isBlacklisted, setIsBlacklisted] = useState(false);
   const [scenarioMode, setScenarioMode] = useState<'human' | 'ai_attack'>('human');
   const scenarioModeRef = useRef<'human' | 'ai_attack'>('human');
+  const isNativeCallSession = callerNumber !== 'Unknown Caller';
+  const hasAnalyzedVoice = chunkTimeline.some((chunk) => chunk.predictedLabel !== 'insufficient_audio');
 
   const timelineRef = useRef<ChunkAnalysisItem[]>([]);
   const secondsRef = useRef<number>(0);
