@@ -249,9 +249,9 @@ export function AnalyticsScreen() {
         }
       >
         <View style={styles.headerRow}>
-          <View>
-            <Text style={styles.headerTitle}>Threat Analytics</Text>
-            <Text style={styles.headerSub}>Live Telemetry & Forensic Defense Intelligence</Text>
+          <View style={{ flex: 1, marginRight: 8 }}>
+            <Text style={styles.headerTitle} numberOfLines={1}>Threat Analytics</Text>
+            <Text style={styles.headerSub} numberOfLines={1}>Live Telemetry & Defense Intel</Text>
           </View>
           <View style={styles.liveIndicator}>
             <View style={styles.liveDot} />
@@ -373,7 +373,7 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 16,
-    paddingBottom: 40,
+    paddingBottom: 110,
   },
   headerRow: {
     flexDirection: 'row',

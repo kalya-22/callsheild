@@ -237,84 +237,74 @@ export function HistoryScreen({ onSelectReport }: HistoryScreenProps) {
           return (
             <GlassCard
               key={item.prediction_id}
-              style={styles.itemCard}
+              style={[
+                styles.itemCard,
+                { borderLeftWidth: 3.5, borderLeftColor: meta.color },
+              ]}
               onPress={() => onSelectReport(item)}
             >
               <View style={styles.itemMain}>
-                <View style={[styles.avatarCircle, { backgroundColor: meta.bg }]}>
+                <View style={[styles.avatarCircle, { backgroundColor: meta.bg, borderColor: meta.color }]}>
                   <Text style={[styles.avatarText, { color: meta.color }]}>
-                    {meta.label === 'Scam' ? 'AI' : 'OK'}
+                    {meta.label === 'Scam' ? '🚨' : meta.label === 'Suspicious' ? '⚠️' : '🛡️'}
                   </Text>
                 </View>
 
                 <View style={styles.itemDetails}>
-                  <Text style={styles.itemTitle}>{item.filename}</Text>
+                  <Text style={styles.itemTitle} numberOfLines={1}>{item.filename}</Text>
                   <Text style={styles.itemSub}>
-                    {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {new Date(item.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })} • {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </Text>
                 </View>
               </View>
 
               <View style={styles.itemRight}>
-                <View style={[styles.riskTag, { backgroundColor: meta.bg }]}>
+                <View style={[styles.riskTag, { backgroundColor: meta.bg, borderColor: meta.color }]}>
                   <Text style={[styles.riskTagText, { color: meta.color }]}>
                     {meta.label} ({confPercent}%)
                   </Text>
                 </View>
-                <TouchableOpacity
-                  style={{
-                    marginTop: 6,
-                    paddingVertical: 4,
-                    paddingHorizontal: 8,
-                    borderRadius: 6,
-                    backgroundColor: C.cardBorder,
-                    alignItems: 'center',
-                  }}
-                  onPress={async () => {
-                    await PdfReportExporter.generateAndSharePdf({
-                      reportId: `CS-${item.prediction_id}`,
-                      phoneNumber: item.filename,
-                      timestamp: new Date(item.created_at).toLocaleString(),
-                      overallPrediction: item.predicted_label,
-                      overallRiskScore: confPercent,
-                      riskLevel: meta.label.toLowerCase(),
-                    });
-                  }}
-                >
-                  <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700' }}>📄 Export PDF</Text>
-                </TouchableOpacity>
 
-                {/* One-Tap Blacklist Button */}
-                <TouchableOpacity
-                  style={{
-                    marginTop: 4,
-                    paddingVertical: 3,
-                    paddingHorizontal: 8,
-                    borderRadius: 6,
-                    backgroundColor: C.dangerDim,
-                    borderColor: C.danger,
-                    borderWidth: 1,
-                    alignItems: 'center',
-                  }}
-                  onPress={async () => {
-                    const phone = item.filename;
-                    if (!phone || phone.includes('sample') || phone.includes('.wav') || phone.includes('.mp3')) {
-                      Alert.alert('Cannot Blacklist', 'Selected entry is an uploaded audio file, not a phone number.');
-                      return;
-                    }
-                    try {
-                      await SupabaseService.addToScamBlacklist(phone, `Flagged in Call History (${confPercent}% AI risk)`);
-                      Alert.alert(
-                        '🚨 Number Added to Blocked Scam List',
-                        `"${phone}" has been successfully added to your Blocked Scam Numbers.`
-                      );
-                    } catch (err: any) {
-                      Alert.alert('Error', err.message || 'Failed to blacklist number');
-                    }
-                  }}
-                >
-                  <Text style={{ color: C.danger, fontSize: 10, fontWeight: '800' }}>🚨 Blacklist</Text>
-                </TouchableOpacity>
+                <View style={styles.cardActionsRow}>
+                  <TouchableOpacity
+                    style={styles.pdfExportBtn}
+                    onPress={async () => {
+                      await PdfReportExporter.generateAndSharePdf({
+                        reportId: `CS-${item.prediction_id}`,
+                        phoneNumber: item.filename,
+                        timestamp: new Date(item.created_at).toLocaleString(),
+                        overallPrediction: item.predicted_label,
+                        overallRiskScore: confPercent,
+                        riskLevel: meta.label.toLowerCase(),
+                      });
+                    }}
+                  >
+                    <Text style={styles.pdfExportBtnText}>📄 PDF</Text>
+                  </TouchableOpacity>
+
+                  {/* One-Tap Blacklist Button */}
+                  <TouchableOpacity
+                    style={styles.blacklistBtn}
+                    onPress={async () => {
+                      const phone = item.filename;
+                      if (!phone || phone.includes('sample') || phone.includes('.wav') || phone.includes('.mp3')) {
+                        Alert.alert('Cannot Blacklist', 'Selected entry is an uploaded audio file, not a phone number.');
+                        return;
+                      }
+                      try {
+                        await SupabaseService.addToScamBlacklist(phone, `Flagged in Call History (${confPercent}% AI risk)`);
+                        Alert.alert(
+                          '🚨 Number Added to Blocked Scam List',
+                          `"${phone}" has been successfully added to your Blocked Scam Numbers.`
+                        );
+                      } catch (err: any) {
+                        Alert.alert('Error', err.message || 'Failed to blacklist number');
+                      }
+                    }}
+                  >
+                    <Text style={styles.blacklistBtnText}>🚫 Block</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </GlassCard>
           );
@@ -332,7 +322,7 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 20,
-    paddingBottom: 32,
+    paddingBottom: 110,
   },
   headerTitle: {
     fontSize: 24,
@@ -397,6 +387,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    marginRight: 8,
   },
   avatarCircle: {
     width: 42,
@@ -405,34 +396,68 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+    borderWidth: 1.5,
   },
   avatarText: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 18,
   },
   itemDetails: {
     flex: 1,
   },
   itemTitle: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '800',
     color: C.text,
     marginBottom: 2,
   },
   itemSub: {
-    fontSize: 12,
+    fontSize: 11,
     color: C.textMuted,
   },
   itemRight: {
     alignItems: 'flex-end',
   },
   riskTag: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 6,
   },
   riskTagText: {
-    fontSize: 11,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  cardActionsRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  pdfExportBtn: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(6, 182, 212, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(6, 182, 212, 0.3)',
+    alignItems: 'center',
+  },
+  pdfExportBtnText: {
+    color: C.accentLight,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  blacklistBtn: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+    alignItems: 'center',
+  },
+  blacklistBtnText: {
+    color: C.dangerLight,
+    fontSize: 10,
     fontWeight: '800',
   },
 });

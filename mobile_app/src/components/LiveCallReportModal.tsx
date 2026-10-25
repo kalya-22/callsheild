@@ -82,7 +82,7 @@ export function LiveCallReportModal({ visible, reportData, phoneNumber, onClose 
         <ScrollView contentContainerStyle={styles.content}>
           {/* Top Header Bar */}
           <View style={styles.headerRow}>
-            <Text style={styles.headerTitle}>Final Live Call Security Report</Text>
+            <Text style={styles.headerTitle} numberOfLines={1}>Final Live Call Security Report</Text>
             <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
               <Text style={styles.closeBtnText}>✕ Close</Text>
             </TouchableOpacity>
@@ -240,7 +240,7 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 16,
-    paddingBottom: 36,
+    paddingBottom: 70,
   },
   headerRow: {
     flexDirection: 'row',
@@ -252,6 +252,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     color: C.text,
+    flex: 1,
+    marginRight: 8,
   },
   closeBtn: {
     paddingVertical: 6,

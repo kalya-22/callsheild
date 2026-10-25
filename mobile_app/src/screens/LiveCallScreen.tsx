@@ -10,6 +10,7 @@ import {
   Platform,
   Alert,
   NativeModules,
+  Vibration,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { C } from '../theme/colors';
@@ -26,14 +27,20 @@ import { callInterceptorService } from '../services/CallInterceptorService';
 import { CallPermissionHandler } from '../services/CallPermissionHandler';
 import { CallHistoryStorage } from '../services/CallHistoryStorage';
 import { SupabaseService } from '../services/SupabaseService';
+import { GuardianStorage, GuardianConfig } from '../services/GuardianStorage';
 
 
 interface LiveCallScreenProps {
   callerNumber?: string;
+  userName?: string;
   onEndCall: () => void;
 }
 
-export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: LiveCallScreenProps) {
+export function LiveCallScreen({
+  callerNumber = 'Unknown Caller',
+  userName = 'User',
+  onEndCall,
+}: LiveCallScreenProps) {
   const [seconds, setSeconds] = useState(0);
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [statusBadge, setStatusBadge] = useState<'safe' | 'suspicious' | 'scam'>('safe');
@@ -43,8 +50,11 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
   const [showReportModal, setShowReportModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [audioNotice, setAudioNotice] = useState<string | null>(null);
+  const [guardianNotice, setGuardianNotice] = useState<string | null>(null);
   const [isBlacklisted, setIsBlacklisted] = useState(false);
+  const [guardianConfig, setGuardianConfig] = useState<GuardianConfig | null>(null);
   const [scenarioMode, setScenarioMode] = useState<'human' | 'ai_attack'>('human');
+  const [hapticActive, setHapticActive] = useState(false);
   const scenarioModeRef = useRef<'human' | 'ai_attack'>('human');
   const isNativeCallSession = callerNumber !== 'Unknown Caller';
   const hasAnalyzedVoice = chunkTimeline.some((chunk) => chunk.predictedLabel !== 'insufficient_audio');
@@ -52,6 +62,23 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
   const timelineRef = useRef<ChunkAnalysisItem[]>([]);
   const secondsRef = useRef<number>(0);
   const lastNativeChunkTimeRef = useRef<number>(0);
+  const lastHapticTimeRef = useRef<number>(0);
+
+  const triggerInEarTactileAlert = () => {
+    const now = Date.now();
+    // Throttle haptic pulse so it doesn't buzz continuously, pulsing every 3.5s
+    if (now - lastHapticTimeRef.current >= 3500) {
+      lastHapticTimeRef.current = now;
+      // In-Ear Tactile Haptic SOS Pulse: Distinct double-pulse (vibrate 280ms, pause 140ms, vibrate 280ms)
+      try {
+        Vibration.vibrate([0, 280, 140, 280]);
+      } catch (err) {
+        console.log('[LiveCallScreen] Vibration error:', err);
+      }
+      setHapticActive(true);
+      setTimeout(() => setHapticActive(false), 2400);
+    }
+  };
 
   const addLiveChunk = (chunkId?: number) => {
     const mode = scenarioModeRef.current;
@@ -88,7 +115,20 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
     setStatusBadge(risk);
     setAudioNotice(null);
     setIsMonitoring(true);
+
+    if (risk === 'scam' || (isAi && conf >= 75)) {
+      triggerInEarTactileAlert();
+      GuardianStorage.checkAndAutoAlertGuardian(userName, callerNumber, conf).then((res) => {
+        if (res.triggered && res.guardianName) {
+          setGuardianNotice(`⚠️ Family Shield: Emergency SMS prepared for ${res.guardianName} (${res.phone})`);
+        }
+      });
+    }
   };
+
+  useEffect(() => {
+    GuardianStorage.getGuardianConfig().then(setGuardianConfig);
+  }, []);
 
   useEffect(() => {
     // Check if caller number is on Supabase Scam Blacklist
@@ -98,6 +138,7 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
           setIsBlacklisted(true);
           setStatusBadge('scam');
           setCurrentConfidence(99);
+          triggerInEarTactileAlert();
         }
       });
     }
@@ -300,7 +341,12 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
 
       const score = Math.round((result.ai_probability ?? 0.85) * 100);
       setCurrentConfidence(score);
-      setStatusBadge(score >= 65 ? 'scam' : score >= 40 ? 'suspicious' : 'safe');
+      const newRisk = score >= 65 ? 'scam' : score >= 40 ? 'suspicious' : 'safe';
+      setStatusBadge(newRisk);
+
+      if (score >= 75) {
+        triggerInEarTactileAlert();
+      }
 
       Alert.alert(
         'AI Detection Result',
@@ -381,8 +427,113 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
           </GlassCard>
         )}
 
+        {/* 👨‍👩‍👧‍👦 Family Shield Guardian Protection Banner (Live Call Protection Monitor) */}
+        <GlassCard
+          variant={statusBadge === 'scam' ? 'danger' : 'purple'}
+          style={styles.guardianNoticeLiveCard}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View
+              style={[
+                styles.guardianLiveIconCircle,
+                {
+                  backgroundColor:
+                    statusBadge === 'scam'
+                      ? 'rgba(239, 68, 68, 0.25)'
+                      : 'rgba(168, 85, 247, 0.25)',
+                },
+              ]}
+            >
+              <Text style={{ fontSize: 22 }}>👨‍👩‍👧‍👦</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                <Text style={styles.guardianNoticeLiveTitle} numberOfLines={1}>
+                  {statusBadge === 'scam'
+                    ? 'Family Shield: AI Scam Detected!'
+                    : 'Family Shield Protection Active'}
+                </Text>
+                <View
+                  style={[
+                    styles.guardianLiveBadge,
+                    {
+                      backgroundColor:
+                        statusBadge === 'scam'
+                          ? 'rgba(239, 68, 68, 0.3)'
+                          : 'rgba(168, 85, 247, 0.3)',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.guardianLiveBadgeText,
+                      { color: statusBadge === 'scam' ? C.dangerLight : '#D8B4FE' },
+                    ]}
+                  >
+                    {statusBadge === 'scam' ? 'ALERT SENT' : 'ARMED'}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.guardianNoticeLiveText}>
+                {guardianNotice
+                  ? guardianNotice
+                  : statusBadge === 'scam'
+                  ? `Emergency alert prepared for ${guardianConfig?.guardianName || 'Family Guardians'}`
+                  : `Family Guard: ${guardianConfig?.guardianName || 'Arjun Kumar, Priya Sharma'} • 1-Tap alert on clone threat`}
+              </Text>
+            </View>
+            <TouchableOpacity
+              activeOpacity={0.82}
+              style={[
+                styles.guardianLiveSmsBtn,
+                {
+                  backgroundColor: statusBadge === 'scam' ? '#DC2626' : '#7C3AED',
+                  borderWidth: 1,
+                  borderColor: statusBadge === 'scam' ? '#EF4444' : '#A855F7',
+                },
+              ]}
+              onPress={() =>
+                GuardianStorage.triggerGuardianSms(
+                  userName,
+                  callerNumber,
+                  currentConfidence || (statusBadge === 'scam' ? 89 : 45)
+                )
+              }
+            >
+              <Text style={styles.guardianLiveSmsBtnText}>
+                {statusBadge === 'scam' ? '🚨 Send Alert' : '📱 Alert'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </GlassCard>
+
+        {/* 📳 In-Ear Tactile Haptic SOS Alert Indicator */}
+        {(statusBadge === 'scam' || hapticActive) && (
+          <GlassCard variant="danger" style={styles.hapticPulseCard}>
+            <View style={styles.hapticPulseRow}>
+              <View style={styles.hapticPulseIconCircle}>
+                <Text style={{ fontSize: 20 }}>📳</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                  <Text style={styles.hapticPulseTitle}>In-Ear Tactile SOS Pulse Active</Text>
+                  <View style={styles.hapticPulseLiveTag}>
+                    <Text style={styles.hapticPulseLiveTagText}>PULSING</Text>
+                  </View>
+                </View>
+                <Text style={styles.hapticPulseSub}>
+                  Phone is pulsing against ear/cheek to warn user without needing to view screen.
+                </Text>
+              </View>
+            </View>
+          </GlassCard>
+        )}
+
         {/* Live Protection Status Card */}
-        <GlassCard bright style={styles.statusCard}>
+        <GlassCard
+          variant={statusBadge === 'scam' ? 'danger' : isMonitoring ? 'glow' : 'bright'}
+          style={styles.statusCard}
+        >
           <TouchableOpacity
             activeOpacity={0.8}
             onPress={() => {
@@ -399,8 +550,34 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
             }}
             delayLongPress={350}
           >
-            <ShieldLogo size={60} animate={isMonitoring} />
+            <ShieldLogo size={64} animate={isMonitoring} />
           </TouchableOpacity>
+
+          {/* Real-Time Acoustic Equalizer Bars */}
+          <View style={styles.equalizerRow}>
+            {[18, 38, 22, 45, 28, 42, 32, 48, 24, 40, 30, 46, 20, 36, 26, 44].map((baseH, idx) => {
+              const animH = isMonitoring ? Math.max(6, (baseH * ((seconds + idx) % 4 + 1)) % 38 + 6) : 6;
+              const barColor =
+                statusBadge === 'scam'
+                  ? C.dangerLight
+                  : statusBadge === 'suspicious'
+                  ? C.warningLight
+                  : C.accentLight;
+              return (
+                <View
+                  key={idx}
+                  style={[
+                    styles.eqBar,
+                    {
+                      height: animH,
+                      backgroundColor: barColor,
+                    },
+                  ]}
+                />
+              );
+            })}
+          </View>
+
           <Text style={styles.statusTitle}>
             {!hasAnalyzedVoice
               ? 'Listening for call audio'
@@ -427,10 +604,10 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
               {
                 backgroundColor:
                   statusBadge === 'scam'
-                    ? C.dangerDim
+                    ? 'rgba(239, 68, 68, 0.2)'
                     : statusBadge === 'suspicious'
-                    ? C.warningDim
-                    : C.successDim,
+                    ? 'rgba(245, 158, 11, 0.2)'
+                    : 'rgba(16, 185, 129, 0.2)',
                 borderColor:
                   statusBadge === 'scam'
                     ? C.danger
@@ -446,10 +623,10 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
                 {
                   color:
                     statusBadge === 'scam'
-                      ? C.danger
+                      ? C.dangerLight
                       : statusBadge === 'suspicious'
-                      ? C.warning
-                      : C.success,
+                      ? C.warningLight
+                      : C.successLight,
                 },
               ]}
             >
@@ -466,7 +643,7 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
               onPress={handleStartProtection}
             >
               <Text style={styles.controlIcon}>▶️</Text>
-              <Text style={styles.controlLabelText}>Start Live Protection</Text>
+              <Text style={styles.controlLabelText} numberOfLines={1}>Start Protection</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
@@ -474,7 +651,7 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
               onPress={handleStopMonitoring}
             >
               <Text style={styles.controlIcon}>⏹️</Text>
-              <Text style={styles.controlLabelText}>Stop Monitoring</Text>
+              <Text style={styles.controlLabelText} numberOfLines={1}>Stop Monitor</Text>
             </TouchableOpacity>
           )}
 
@@ -484,7 +661,7 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
             ) : (
               <>
                 <Text style={styles.controlIcon}>📁</Text>
-                <Text style={styles.controlLabelText}>Upload Audio</Text>
+                <Text style={styles.controlLabelText} numberOfLines={1}>Upload Audio</Text>
               </>
             )}
           </TouchableOpacity>
@@ -552,7 +729,7 @@ export function LiveCallScreen({ callerNumber = 'Unknown Caller', onEndCall }: L
             handleStopMonitoring();
           }}
         >
-          <Text style={styles.endCallButtonText}>⛔ End Call & View Final Security Report</Text>
+          <Text style={styles.endCallButtonText} numberOfLines={1}>⛔ End Call & View Final Report</Text>
         </TouchableOpacity>
       </ScrollView>
 
@@ -578,17 +755,19 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 24,
-    paddingBottom: 36,
+    paddingBottom: 110,
   },
   callerHeader: {
     alignItems: 'center',
     marginBottom: 16,
   },
   callerAvatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: 'rgba(37, 99, 235, 0.2)',
+    borderWidth: 2,
+    borderColor: 'rgba(59, 130, 246, 0.4)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
@@ -604,7 +783,21 @@ const styles = StyleSheet.create({
   },
   callerSub: {
     fontSize: 13,
-    color: C.textMuted,
+    color: C.accentLight,
+    fontWeight: '600',
+  },
+  equalizerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 4,
+    height: 44,
+    marginVertical: 12,
+  },
+  eqBar: {
+    width: 4,
+    borderRadius: 2,
+    minHeight: 6,
   },
   speakerHintCard: {
     padding: 14,
@@ -851,5 +1044,100 @@ const styles = StyleSheet.create({
   scenarioBtnTextActive: {
     color: C.text,
     fontWeight: '900',
+  },
+  guardianNoticeLiveCard: {
+    padding: 14,
+    marginBottom: 16,
+  },
+  guardianLiveIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  guardianLiveBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  guardianLiveBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  guardianNoticeLiveTitle: {
+    color: C.text,
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 2,
+    flexShrink: 1,
+    marginRight: 6,
+  },
+  guardianNoticeLiveText: {
+    color: C.textSec,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  guardianLiveSmsBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  guardianLiveSmsBtnText: {
+    color: C.text,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  hapticPulseCard: {
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1.5,
+    borderColor: 'rgba(239, 68, 68, 0.6)',
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+  },
+  hapticPulseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  hapticPulseIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(239, 68, 68, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.4)',
+  },
+  hapticPulseTitle: {
+    color: C.dangerLight,
+    fontSize: 13,
+    fontWeight: '800',
+    flexShrink: 1,
+  },
+  hapticPulseLiveTag: {
+    backgroundColor: 'rgba(239, 68, 68, 0.35)',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: C.danger,
+  },
+  hapticPulseLiveTagText: {
+    color: '#FFF',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  hapticPulseSub: {
+    color: 'rgba(255, 255, 255, 0.75)',
+    fontSize: 11,
+    lineHeight: 15,
   },
 });

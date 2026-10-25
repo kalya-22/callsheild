@@ -1,0 +1,3 @@
+Held_Out_Generator,AUC,EER_%,Unseen_AI_Recall_%,F1_Score,Test_Samples
+gTTS,1.0,0.0,32.38,0.4892,310
+ElevenLabs,0.774,22.6,8.22,0.1519,278

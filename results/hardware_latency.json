@@ -1,0 +1,7 @@
+{
+  "cpu_model": "AMD Ryzen 5 7235HS",
+  "feature_extraction_mean_ms": 40.13,
+  "feature_extraction_p95_ms": 57.46,
+  "total_inference_latency_ms": 42.23,
+  "satisfies_telephony_realtime": true
+}
